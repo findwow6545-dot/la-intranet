@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   --background: #f8fafc;
@@ -35,7 +33,7 @@ body {
   }
 
   .input-field {
-    @apply w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-900 transition-all focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10;
+    @apply w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-900 transition-all focus:outline-none focus:border-[#2d5a27] focus:ring-4 focus:ring-[#2d5a27]/10;
   }
 
   .btn-primary {
