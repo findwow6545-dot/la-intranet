@@ -8,6 +8,7 @@ import { Leaf, Menu, X, Users, ClipboardList, BookOpen, Calendar, Home } from 'l
 const navLinks = [
   { label: '홈', href: '/', icon: Home },
   { label: '연구생 명부', href: '/members', icon: Users },
+  { label: '졸업생 명부', href: '/alumni', icon: GraduationCap },
   { label: '게시판', href: '/board', icon: ClipboardList },
   { label: '자료실', href: '/library', icon: BookOpen },
   { label: '일정', href: '/schedule', icon: Calendar },
