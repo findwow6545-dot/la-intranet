@@ -71,6 +71,27 @@ export default function LibraryPage() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!isFormOpen || isUploading) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const f = new File([blob], `pasted-image-${Date.now()}.png`, { type: blob.type });
+            setFile(f);
+            showToast('클립보드 이미지가 첨부되었습니다.');
+            break;
+          }
+        }
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [isFormOpen, isUploading]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
