@@ -96,6 +96,17 @@ export default function MembersPage() {
 
   const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation();
+    const adminId = window.prompt('관리자 아이디를 입력하세요:');
+    if (adminId !== 'admin') {
+      alert('아이디가 일치하지 않습니다.');
+      return;
+    }
+    const adminPw = window.prompt('관리자 비밀번호를 입력하세요:');
+    if (adminPw !== '1234') {
+      alert('비밀번호가 일치하지 않습니다.');
+      return;
+    }
+    
     if (!confirm(`"${name}" 님의 정보를 정말 삭제하시겠습니까?`)) return;
     try {
       await deleteDoc(doc(db, 'members', id));
@@ -111,7 +122,10 @@ export default function MembersPage() {
     m.studentId?.includes(searchTerm) || 
     m.researchFields?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     m.batch?.includes(searchTerm)
-  );
+  ).sort((a, b) => {
+    const parseBatch = (batchStr: string) => parseInt((batchStr || '').replace(/[^0-9]/g, '')) || 0;
+    return parseBatch(b.batch) - parseBatch(a.batch);
+  });
 
   const stats = {
     total: members.length,
@@ -132,7 +146,7 @@ export default function MembersPage() {
       <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3">
-            <Users className="w-8 h-8 text-[#2d5a27]" /> 연구실 회원 명부
+            <Users className="w-8 h-8 text-[#2d5a27]" /> 연구실 연구생 명부
           </h1>
           <p className="text-slate-500 mt-1 text-sm">멤버 상세정보를 보려면 카드를 클릭하세요.</p>
         </div>
@@ -201,7 +215,6 @@ export default function MembersPage() {
                    </div>
                    <div className="flex gap-1">
                      <button onClick={(e) => handleEdit(e, member)} className="text-slate-300 hover:text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit2 size={16} /></button>
-                     <button onClick={(e) => handleDelete(e, member.id, member.name)} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={16} /></button>
                    </div>
                  </div>
                  <div className="space-y-1.5 text-sm text-slate-600">
@@ -231,9 +244,14 @@ export default function MembersPage() {
                   </div>
                   <p className="text-slate-500 text-sm font-medium mt-1 flex items-center gap-2"><GraduationCap size={16}/> {selectedMember.grade} ({selectedMember.studentId})</p>
                   
-                  <button onClick={(e) => { setSelectedMember(null); handleEdit(e, selectedMember!); }} className="absolute right-0 top-0 text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 px-4 py-2 rounded-xl transition flex items-center gap-2">
-                    <Edit2 size={16}/> 정보 수정
-                  </button>
+                  <div className="absolute right-0 top-0 flex gap-2">
+                    <button onClick={(e) => { setSelectedMember(null); handleEdit(e, selectedMember!); }} className="text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 px-4 py-2 rounded-xl transition flex items-center gap-2">
+                      <Edit2 size={16}/> 정보 수정
+                    </button>
+                    <button onClick={(e) => handleDelete(e, selectedMember!.id, selectedMember!.name)} className="text-sm font-bold bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl transition flex items-center gap-2">
+                      <Trash2 size={16}/> 삭제하기
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-2xl space-y-3">

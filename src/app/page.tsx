@@ -8,7 +8,7 @@ import { Users, ClipboardList, BookOpen, Calendar, ArrowRight, Sparkles } from '
 export default function Home() {
   const menuItems = [
     { 
-      title: "연구실 회원 명부", 
+      title: "연구실 연구생 명부", 
       desc: "연구원 정보 관리 및 데이터베이스 조회", 
       icon: Users, 
       href: "/members", 
