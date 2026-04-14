@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClipboardList, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2 } from 'lucide-react';
+import { ClipboardList, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -16,6 +16,33 @@ interface Post {
   attachmentType?: 'image' | 'video' | 'file';
   createdAt: any;
 }
+
+const extractYoutubeId = (text: string) => {
+  if (!text) return null;
+  const regExp = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+  const match = text.match(regExp);
+  return match ? match[1] : null;
+};
+
+const Linkify = ({ text }: { text: string }) => {
+  const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
+  if (!text) return null;
+  const parts = text.split(urlRegex);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.match(urlRegex)) {
+          return (
+            <a key={i} href={part.startsWith('http') ? part : `https://${part}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 font-medium hover:underline hover:text-blue-700 mx-1" onClick={(e) => e.stopPropagation()}>
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+};
 
 export default function BoardPage() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -180,33 +207,42 @@ export default function BoardPage() {
         <input type="text" placeholder="제목이나 내용으로 검색..." className="input-field pl-12 h-14" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
       </div>
 
-      <div className="space-y-4">
-        {filteredPosts.map(post => (
-          <div key={post.id} onClick={() => setSelectedPost(post)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer group">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {filteredPosts.map(post => {
+          const ytId = extractYoutubeId(post.content);
+          return (
+          <div key={post.id} onClick={() => setSelectedPost(post)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer group flex flex-col">
+            {post.attachmentType === 'image' && post.attachmentUrl ? (
+              <div className="w-full h-48 bg-slate-100 mb-4 rounded-xl overflow-hidden shrink-0"><img src={post.attachmentUrl} alt="thumbnail" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" /></div>
+            ) : ytId ? (
+              <div className="w-full h-48 bg-slate-100 mb-4 rounded-xl overflow-hidden relative shrink-0"><img src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt="youtube" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" /><div className="absolute inset-0 flex items-center justify-center bg-black/10"><div className="w-12 h-12 bg-red-600/90 text-white rounded-full flex items-center justify-center pl-1 backdrop-blur-sm shadow-xl"><Play size={24} fill="currentColor" /></div></div></div>
+            ) : post.attachmentType === 'video' && post.attachmentUrl ? (
+              <div className="w-full h-48 bg-slate-900 mb-4 rounded-xl overflow-hidden relative shrink-0"><video src={post.attachmentUrl} className="w-full h-full object-cover opacity-70" preload="metadata" /><div className="absolute inset-0 flex items-center justify-center"><div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30 shadow-xl"><Video size={24}/></div></div></div>
+            ) : null}
             <div className="flex justify-between items-start mb-3">
               <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition">{post.title}</h3>
-              <div className="flex gap-1">
+              <div className="flex gap-1 shrink-0 ml-2">
                 <button onClick={(e) => handleEdit(e, post)} className="text-slate-300 hover:text-blue-500 transition p-1"><Edit2 size={16} /></button>
                 <button onClick={(e) => handleDelete(e, post.id, post.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16} /></button>
               </div>
             </div>
             
-            <p className="text-slate-600 text-sm line-clamp-2 mb-4">{post.content}</p>
+            <div className="text-slate-600 text-sm line-clamp-2 mb-4 flex-1 whitespace-pre-wrap"><Linkify text={post.content} /></div>
             
-            <div className="flex items-center justify-between text-xs font-medium text-slate-400 border-t border-slate-50 pt-4 mt-2">
+            <div className="flex items-center justify-between text-xs font-medium text-slate-400 border-t border-slate-50 pt-4 mt-auto">
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1.5 bg-slate-100/50 px-2 py-1 rounded-md text-slate-600"><User size={12} /> {post.author}</span>
                 <span className="flex items-center gap-1"><Clock size={12} /> {post.createdAt?.toDate?.()?.toLocaleDateString?.() || '상세 보기'}</span>
               </div>
               {post.attachmentUrl && (
-                <span className="flex items-center gap-1 text-blue-500 font-bold bg-blue-50 px-2 py-1 rounded-md">
+                <span className="flex items-center gap-1 text-blue-500 font-bold bg-blue-50 px-2 py-1 rounded-md shrink-0">
                    {post.attachmentType === 'video' ? <Video size={14}/> : <FileImage size={14}/>} 첨부됨
                 </span>
               )}
             </div>
           </div>
-        ))}
-        {filteredPosts.length === 0 && <p className="text-center text-slate-400 py-10 w-full">조건에 맞는 게시글이 없습니다.</p>}
+        )})}
+        {filteredPosts.length === 0 && <p className="text-center text-slate-400 py-10 w-full md:col-span-2">조건에 맞는 게시글이 없습니다.</p>}
       </div>
 
       {selectedPost && (
@@ -229,7 +265,7 @@ export default function BoardPage() {
               </div>
               
               <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
-                <p className="text-slate-800 text-base leading-relaxed whitespace-pre-wrap mb-8">{selectedPost.content}</p>
+                <p className="text-slate-800 text-base leading-relaxed whitespace-pre-wrap mb-8"><Linkify text={selectedPost.content} /></p>
                 
                 {selectedPost.attachmentUrl && (
                   <div className="mt-4 border border-slate-100 rounded-2xl overflow-hidden bg-slate-50 p-2">

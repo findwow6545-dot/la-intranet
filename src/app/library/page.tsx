@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Search, Trash2, ExternalLink, X, CheckCircle2, Edit2 } from 'lucide-react';
+import { BookOpen, Plus, Search, Trash2, ExternalLink, X, CheckCircle2, Edit2, Play } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 
@@ -15,6 +15,33 @@ interface LibraryItem {
   uploader: string;
   createdAt: any;
 }
+
+const extractYoutubeId = (text: string) => {
+  if (!text) return null;
+  const regExp = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+  const match = text.match(regExp);
+  return match ? match[1] : null;
+};
+
+const Linkify = ({ text }: { text: string }) => {
+  const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
+  if (!text) return null;
+  const parts = text.split(urlRegex);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.match(urlRegex)) {
+          return (
+            <a key={i} href={part.startsWith('http') ? part : `https://${part}`} target="_blank" rel="noopener noreferrer" className="text-amber-500 font-bold hover:underline hover:text-amber-700 mx-1" onClick={(e) => e.stopPropagation()}>
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+};
 
 export default function LibraryPage() {
   const [items, setItems] = useState<LibraryItem[]>([]);
@@ -120,17 +147,27 @@ export default function LibraryPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredItems.map(item => (
-          <div key={item.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition flex flex-col">
+        {filteredItems.map(item => {
+          const ytId = extractYoutubeId(item.link) || extractYoutubeId(item.description);
+          return (
+          <div key={item.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition flex flex-col group hover:border-amber-300">
+            {ytId && (
+              <a href={item.link || `https://youtube.com/watch?v=${ytId}`} target="_blank" rel="noreferrer" className="w-full h-40 bg-slate-100 mb-4 rounded-xl overflow-hidden relative shrink-0 block">
+                <img src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt="youtube" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                  <div className="w-12 h-12 bg-red-600/90 text-white rounded-full flex items-center justify-center pl-1 backdrop-blur-sm shadow-xl"><Play size={24} fill="currentColor" /></div>
+                </div>
+              </a>
+            )}
             <div className="flex justify-between items-start mb-2">
               <span className="text-[10px] font-black px-2 py-1 bg-amber-50 text-amber-600 rounded-md">{item.type}</span>
-              <div className="flex gap-1">
+              <div className="flex gap-1 shrink-0 ml-2">
                 <button onClick={() => handleEdit(item)} className="text-slate-300 hover:text-blue-500 transition p-1"><Edit2 size={16} /></button>
                 <button onClick={() => handleDelete(item.id, item.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16}/></button>
               </div>
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-2 line-clamp-2">{item.title}</h3>
-            <p className="text-slate-500 text-xs line-clamp-3 mb-4 flex-1">{item.description}</p>
+            <div className="text-slate-500 text-xs line-clamp-3 mb-4 flex-1 whitespace-pre-wrap"><Linkify text={item.description} /></div>
             <div className="flex items-center justify-between mt-auto border-t pt-4 border-slate-50">
               <span className="text-xs text-slate-400 font-medium">등록: {item.uploader}</span>
               <a href={item.link} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-amber-600 font-bold text-xs hover:underline">
@@ -138,7 +175,7 @@ export default function LibraryPage() {
               </a>
             </div>
           </div>
-        ))}
+        )})}
         {filteredItems.length === 0 && <p className="text-center text-slate-400 py-10 w-full col-span-3">조건에 맞는 자료가 없습니다.</p>}
       </div>
     </div>
