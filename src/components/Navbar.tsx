@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Leaf, Menu, X, Users, ClipboardList, BookOpen, Calendar, Home } from 'lucide-react';
+import { Leaf, Menu, X, Users, ClipboardList, BookOpen, Calendar, Home, GraduationCap } from 'lucide-react';
 
 const navLinks = [
   { label: '홈', href: '/', icon: Home },
