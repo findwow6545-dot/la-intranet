@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Search, Trash2, Download, ExternalLink, X, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Plus, Search, Trash2, ExternalLink, X, CheckCircle2, Edit2 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 
 interface LibraryItem {
   id: string;
@@ -19,10 +19,12 @@ interface LibraryItem {
 export default function LibraryPage() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  const [formData, setFormData] = useState({ title: '', type: '논문', link: '', description: '', uploader: '' });
+  const emptyForm = { title: '', type: '논문', link: '', description: '', uploader: '' };
+  const [formData, setFormData] = useState(emptyForm);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -40,13 +42,26 @@ export default function LibraryPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'library'), { ...formData, createdAt: serverTimestamp() });
-      showToast('자료가 등록되었습니다!');
+      if (editingId) {
+        await updateDoc(doc(db, 'library', editingId), formData);
+        showToast('자료가 수정되었습니다!');
+      } else {
+        await addDoc(collection(db, 'library'), { ...formData, createdAt: serverTimestamp() });
+        showToast('자료가 등록되었습니다!');
+      }
       setIsFormOpen(false);
-      setFormData({ title: '', type: '논문', link: '', description: '', uploader: '' });
+      setEditingId(null);
+      setFormData(emptyForm);
     } catch (err) {
-      showToast('등록 중 오류가 발생했습니다.', 'error');
+      showToast('저장 중 오류가 발생했습니다.', 'error');
     }
+  };
+
+  const handleEdit = (item: LibraryItem) => {
+    setFormData({ title: item.title, type: item.type, link: item.link, description: item.description, uploader: item.uploader });
+    setEditingId(item.id);
+    setIsFormOpen(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id: string, title: string) => {
@@ -72,15 +87,19 @@ export default function LibraryPage() {
           <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3"><BookOpen className="text-amber-600 w-8 h-8" /> 데이터 라이브러리</h1>
           <p className="text-slate-500 mt-1 text-sm">연구 논문 및 데이터셋을 보관하고 공유합니다.</p>
         </div>
-        <button onClick={() => setIsFormOpen(!isFormOpen)} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-amber-700 transition flex items-center gap-2">
-          {isFormOpen ? <X size={18} /> : <Plus size={18} />} 자료 등록
+        <button onClick={() => {
+            setIsFormOpen(!isFormOpen);
+            if (!isFormOpen) { setFormData(emptyForm); setEditingId(null); }
+          }} className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-amber-700 transition flex items-center gap-2"
+        >
+          {isFormOpen ? <X size={18} /> : <Plus size={18} />} {editingId ? '닫기' : '자료 등록'}
         </button>
       </div>
 
       <AnimatePresence>
         {isFormOpen && (
           <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <h2 className="text-lg font-bold mb-2 md:col-span-2">새 자료 등록</h2>
+            <h2 className="text-lg font-bold mb-2 md:col-span-2">{editingId ? '자료 정보 수정' : '새 자료 등록'}</h2>
             <div className="space-y-1"><label className="text-xs font-bold text-slate-600">자료명</label><input required className="input-field" value={formData.title} onChange={e=>setFormData({...formData, title: e.target.value})}/></div>
             <div className="space-y-1"><label className="text-xs font-bold text-slate-600">자료 유형</label>
               <select className="input-field" value={formData.type} onChange={e=>setFormData({...formData, type: e.target.value})}>
@@ -90,20 +109,28 @@ export default function LibraryPage() {
             <div className="space-y-1 md:col-span-2"><label className="text-xs font-bold text-slate-600">다운로드 또는 참고 링크 (URL)</label><input required type="url" className="input-field" placeholder="https://" value={formData.link} onChange={e=>setFormData({...formData, link: e.target.value})}/></div>
             <div className="space-y-1 md:col-span-2"><label className="text-xs font-bold text-slate-600">자료 설명</label><textarea className="input-field" value={formData.description} onChange={e=>setFormData({...formData, description: e.target.value})}/></div>
             <div className="space-y-1 md:col-span-2"><label className="text-xs font-bold text-slate-600">등록자 이름</label><input required className="input-field" value={formData.uploader} onChange={e=>setFormData({...formData, uploader: e.target.value})}/></div>
-            <button type="submit" className="md:col-span-2 bg-amber-600 text-white w-full py-3 rounded-xl font-bold">자료 추가하기</button>
+            <button type="submit" className="md:col-span-2 bg-amber-600 text-white w-full py-3 rounded-xl font-bold">{editingId ? '자료 수정 적용하기' : '자료 추가하기'}</button>
           </motion.form>
         )}
       </AnimatePresence>
 
+      <div className="mb-6 relative">
+        <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
+        <input type="text" placeholder="자료명이나 설명으로 검색..." className="input-field pl-12 h-14" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredItems.map(item => (
-          <div key={item.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition">
+          <div key={item.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition flex flex-col">
             <div className="flex justify-between items-start mb-2">
               <span className="text-[10px] font-black px-2 py-1 bg-amber-50 text-amber-600 rounded-md">{item.type}</span>
-              <button onClick={() => handleDelete(item.id, item.title)} className="text-slate-300 hover:text-red-500"><Trash2 size={14}/></button>
+              <div className="flex gap-1">
+                <button onClick={() => handleEdit(item)} className="text-slate-300 hover:text-blue-500 transition p-1"><Edit2 size={16} /></button>
+                <button onClick={() => handleDelete(item.id, item.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16}/></button>
+              </div>
             </div>
             <h3 className="text-lg font-bold text-slate-900 mb-2 line-clamp-2">{item.title}</h3>
-            <p className="text-slate-500 text-xs line-clamp-3 mb-4">{item.description}</p>
+            <p className="text-slate-500 text-xs line-clamp-3 mb-4 flex-1">{item.description}</p>
             <div className="flex items-center justify-between mt-auto border-t pt-4 border-slate-50">
               <span className="text-xs text-slate-400 font-medium">등록: {item.uploader}</span>
               <a href={item.link} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-amber-600 font-bold text-xs hover:underline">
@@ -112,6 +139,7 @@ export default function LibraryPage() {
             </div>
           </div>
         ))}
+        {filteredItems.length === 0 && <p className="text-center text-slate-400 py-10 w-full col-span-3">조건에 맞는 자료가 없습니다.</p>}
       </div>
     </div>
   );
