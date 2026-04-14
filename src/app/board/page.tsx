@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClipboardList, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play } from 'lucide-react';
+import { ClipboardList, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, Download } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -165,6 +165,24 @@ export default function BoardPage() {
 
   const filteredPosts = posts.filter(p => p.title.includes(searchTerm) || p.content.includes(searchTerm));
 
+  const handleDownload = async (url: string, fileName: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Download failed:', error);
+      window.open(url, '_blank');
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 relative">
       <AnimatePresence>
@@ -289,18 +307,44 @@ export default function BoardPage() {
                 <p className="text-slate-800 text-base leading-relaxed whitespace-pre-wrap mb-8"><Linkify text={selectedPost.content} /></p>
                 
                 {selectedPost.attachmentUrl && (
-                  <div className="mt-4 border border-slate-100 rounded-2xl overflow-hidden bg-slate-50 p-2">
-                    {selectedPost.attachmentType === 'image' && (
-                      <img src={selectedPost.attachmentUrl} alt="첨부 이미지" className="w-full h-auto rounded-xl max-h-[500px] object-contain bg-black/5" />
-                    )}
-                    {selectedPost.attachmentType === 'video' && (
-                      <video src={selectedPost.attachmentUrl} controls className="w-full h-auto rounded-xl max-h-[500px] bg-black" />
-                    )}
-                    {selectedPost.attachmentType === 'file' && (
-                      <a href={selectedPost.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-4 bg-white rounded-xl border border-blue-100 hover:border-blue-300 text-blue-600 font-bold transition">
-                        <Paperclip size={24} /> 일반 파일 다운로드 (새 탭에서 열기)
-                      </a>
-                    )}
+                  <div className="mt-4 border border-slate-100 rounded-2xl overflow-hidden bg-slate-50 p-4">
+                    <div className="flex flex-col gap-4">
+                      {selectedPost.attachmentType === 'image' && (
+                        <div className="relative group">
+                          <img src={selectedPost.attachmentUrl} alt="첨부 이미지" className="w-full h-auto rounded-xl max-h-[500px] object-contain bg-black/5" />
+                          <button 
+                            onClick={() => handleDownload(selectedPost.attachmentUrl!, `image_${Date.now()}.png`)}
+                            className="mt-3 w-full flex items-center justify-center gap-2 py-3 bg-white border border-blue-200 text-blue-600 font-bold rounded-xl hover:bg-blue-50 transition shadow-sm"
+                          >
+                            <Download size={20} /> 이미지 다운로드
+                          </button>
+                        </div>
+                      )}
+                      {selectedPost.attachmentType === 'video' && (
+                        <div className="flex flex-col gap-3">
+                          <video src={selectedPost.attachmentUrl} controls className="w-full h-auto rounded-xl max-h-[500px] bg-black" />
+                          <button 
+                            onClick={() => handleDownload(selectedPost.attachmentUrl!, `video_${Date.now()}.mp4`)}
+                            className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-blue-200 text-blue-600 font-bold rounded-xl hover:bg-blue-50 transition shadow-sm"
+                          >
+                            <Download size={20} /> 영상 다운로드
+                          </button>
+                        </div>
+                      )}
+                      {selectedPost.attachmentType === 'file' && (
+                        <div className="flex flex-col gap-2">
+                          <button 
+                            onClick={() => handleDownload(selectedPost.attachmentUrl!, `file_${Date.now()}`)}
+                            className="flex items-center justify-center gap-3 p-5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-200"
+                          >
+                            <Download size={24} /> 첨부 파일 다운로드 받기
+                          </button>
+                          <a href={selectedPost.attachmentUrl} target="_blank" rel="noreferrer" className="text-center text-xs text-slate-400 hover:underline">
+                            다운로드 오류 시 새 탭에서 열기
+                          </a>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
