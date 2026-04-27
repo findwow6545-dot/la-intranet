@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, Tag } from 'lucide-react';
+import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, Tag, Lock } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/lib/auth-context';
 import { useBoardCategories } from '@/lib/use-board-categories';
 import CategoryManager from '@/components/CategoryManager';
+import Link from 'next/link';
 
 interface LibraryItem {
   id: string;
@@ -61,7 +62,7 @@ const Linkify = ({ text }: { text: string }) => {
 };
 
 export default function LibraryPage() {
-  const { user, isAdmin, userName } = useAuth();
+  const { user, isAdmin, userName, loading: authLoading } = useAuth();
   const { categories: boardCategories, addCategory, deleteCategory, renameCategory } = useBoardCategories({
     boardName: 'library',
     postsCollection: 'library',
@@ -94,12 +95,13 @@ export default function LibraryPage() {
   };
 
   useEffect(() => {
+    if (authLoading || !user) return;
     const q = query(collection(db, 'library'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as LibraryItem[]);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user, authLoading]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { '전체': items.length };
@@ -194,6 +196,24 @@ export default function LibraryPage() {
   const filteredItems = items
     .filter(p => selectedCategory === '전체' || p.type === selectedCategory)
     .filter(p => p.title.includes(searchTerm) || (p.content || (p as any).description || '').includes(searchTerm));
+
+  if (!authLoading && !user) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 flex flex-col items-center text-center">
+        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-6">
+          <Lock size={40} />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 mb-2">멤버 전용 서비스</h2>
+        <p className="text-slate-500 mb-8 max-w-sm">
+          자료실은 연구실 멤버만 열람 가능합니다.<br />
+          로그인 후 이용해 주세요.
+        </p>
+        <Link href="/login" className="bg-amber-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-amber-700 transition shadow-lg shadow-amber-600/20">
+          로그인 페이지로 이동
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 relative">
@@ -291,7 +311,7 @@ export default function LibraryPage() {
           const attUrl = item.attachmentUrl || (item as any).link;
           const editable = canEditDelete(item);
           return (
-          <div key={item.id} onClick={() => setSelectedItem(item)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-amber-300 hover:shadow-md transition cursor-pointer group flex flex-col">
+          <div key={item.id} onClick={() => setSelectedItem(item)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-amber-300 hover:shadow-md transition cursor-pointer group flex flex-col shadow-sm">
             {item.attachmentType === 'image' && item.attachmentUrl ? (
               <div className="w-full h-48 bg-slate-100 mb-4 rounded-xl overflow-hidden shrink-0"><img src={item.attachmentUrl} alt="thumbnail" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" /></div>
             ) : ytId ? (

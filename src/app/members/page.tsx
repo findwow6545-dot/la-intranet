@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   UserPlus, Users, Search, Mail, Phone, MapPin, 
   Calendar, BookOpen, Camera, Trash2, X, CheckCircle2,
-  GraduationCap, Edit2
+  GraduationCap, Edit2, Lock
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { 
@@ -29,7 +29,7 @@ interface Member {
 }
 
 export default function MembersPage() {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -122,6 +122,30 @@ export default function MembersPage() {
     }
   };
 
+  const maskInfo = (text: string | undefined, type: 'phone' | 'email' | 'address' | 'studentId') => {
+    if (!text) return '-';
+    if (user) return text; // 멤버(로그인 사용자)는 전체 확인 가능
+
+    // 비멤버인 경우 마스킹 처리
+    if (type === 'phone') {
+      const parts = text.split('-');
+      if (parts.length === 3) return `${parts[0]}-****-${parts[2]}`;
+      return text.substring(0, 3) + '****' + text.substring(text.length - 2);
+    }
+    if (type === 'email') {
+      const [id, domain] = text.split('@');
+      if (!domain) return text.substring(0, 2) + '***';
+      return id.substring(0, 2) + '***@' + domain;
+    }
+    if (type === 'studentId') {
+      return text.substring(0, 4) + '****';
+    }
+    if (type === 'address') {
+      return text.split(' ').slice(0, 2).join(' ') + ' ***';
+    }
+    return '***';
+  };
+
   const filteredMembers = members.filter(m => 
     m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
     m.studentId?.includes(searchTerm) || 
@@ -153,7 +177,7 @@ export default function MembersPage() {
           <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3">
             <Users className="w-8 h-8 text-[#2d5a27]" /> 연구실 연구생 명부
           </h1>
-          <p className="text-slate-500 mt-1 text-sm">멤버 상세정보를 보려면 카드를 클릭하세요.</p>
+          <p className="text-slate-500 mt-1 text-sm">멤버 상세정보를 보려면 카드를 클릭하세요. {!user && <span className="text-amber-600 font-bold ml-2">(비회원은 일부 정보가 제한됩니다)</span>}</p>
         </div>
         
         {isAdmin && (
@@ -161,7 +185,7 @@ export default function MembersPage() {
               setIsFormOpen(!isFormOpen);
               if (!isFormOpen) { setFormData(emptyForm); setEditingId(null); }
             }} 
-            className="btn-primary flex items-center gap-2"
+            className="bg-[#2d5a27] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#1f3f1b] transition flex items-center gap-2 shadow-lg shadow-emerald-900/10"
           >
             {isFormOpen ? <X size={18} /> : <UserPlus size={18} />} {isFormOpen ? '닫기' : '신규 멤버 등록'}
           </button>
@@ -183,7 +207,7 @@ export default function MembersPage() {
 
       <AnimatePresence>
         {isFormOpen && isAdmin && (
-          <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="glass-card mb-8 p-6 sm:p-8 rounded-2xl overflow-hidden">
+          <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="bg-white border border-slate-200 shadow-sm mb-8 p-6 sm:p-8 rounded-2xl overflow-hidden">
             <h2 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2">
               <UserPlus size={20} className="text-[#2d5a27]"/> {editingId ? '연구원 정보 수정' : '신규 연구원 등록'}
             </h2>
@@ -197,7 +221,7 @@ export default function MembersPage() {
                <div className="md:col-span-2 space-y-1.5"><label className="text-xs font-bold text-slate-600">주소</label><input className="input-field" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} /></div>
                <div className="md:col-span-2 space-y-1.5"><label className="text-xs font-bold text-slate-600">사진 URL (비워두면 이니셜)</label><input className="input-field" value={formData.photoUrl} onChange={e => setFormData({...formData, photoUrl: e.target.value})} /></div>
                <div className="md:col-span-2 space-y-1.5"><label className="text-xs font-bold text-slate-600">관심 연구 분야</label><textarea className="input-field h-24 resize-none" value={formData.researchFields} onChange={e => setFormData({...formData, researchFields: e.target.value})} /></div>
-               <div className="md:col-span-2 pt-2"><button type="submit" className="btn-primary w-full text-base py-4">{editingId ? '수정 완료하기' : '등록하기'}</button></div>
+               <div className="md:col-span-2 pt-2"><button type="submit" className="bg-[#2d5a27] text-white w-full py-4 rounded-xl font-black hover:bg-[#1f3f1b] transition shadow-lg shadow-emerald-900/10">{editingId ? '수정 완료하기' : '등록하기'}</button></div>
             </div>
           </motion.form>
         )}
@@ -211,7 +235,7 @@ export default function MembersPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <AnimatePresence>
           {filteredMembers.map(member => (
-            <motion.div layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} key={member.id} onClick={() => setSelectedMember(member)} className="glass-card rounded-2xl overflow-hidden cursor-pointer group hover:shadow-lg hover:border-emerald-300 transition-all duration-300">
+            <motion.div layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} key={member.id} onClick={() => setSelectedMember(member)} className="bg-white border border-slate-100 rounded-2xl overflow-hidden cursor-pointer group hover:shadow-lg hover:border-emerald-300 transition-all duration-300 shadow-sm">
                <div className="p-6">
                  <div className="flex justify-between items-start mb-4">
                    <div className="flex gap-4 items-center">
@@ -229,8 +253,8 @@ export default function MembersPage() {
                  </div>
                  <div className="space-y-1.5 text-sm text-slate-600">
                    {member.batch && <div className="text-xs font-bold text-emerald-600 bg-emerald-50 w-max px-2 py-0.5 rounded-md mb-2">{member.batch}</div>}
-                   {member.phone && <div className="flex items-center gap-2"><Phone size={14} className="text-slate-400" /> {member.phone}</div>}
-                   {member.email && <div className="flex items-center gap-2"><Mail size={14} className="text-slate-400" /> <span className="truncate">{member.email}</span></div>}
+                   <div className="flex items-center gap-2"><Phone size={14} className="text-slate-400" /> {maskInfo(member.phone, 'phone')}</div>
+                   <div className="flex items-center gap-2"><Mail size={14} className="text-slate-400" /> <span className="truncate">{maskInfo(member.email, 'email')}</span></div>
                  </div>
                </div>
             </motion.div>
@@ -252,7 +276,7 @@ export default function MembersPage() {
                     <h2 className="text-3xl font-black text-slate-900">{selectedMember.name}</h2>
                     <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-1 rounded-lg text-sm mb-1">{selectedMember.batch}</span>
                   </div>
-                  <p className="text-slate-500 text-sm font-medium mt-1 flex items-center gap-2"><GraduationCap size={16}/> {selectedMember.grade} ({selectedMember.studentId})</p>
+                  <p className="text-slate-500 text-sm font-medium mt-1 flex items-center gap-2"><GraduationCap size={16}/> {selectedMember.grade} ({maskInfo(selectedMember.studentId, 'studentId')})</p>
                   
                   {isAdmin && (
                     <div className="absolute right-0 top-0 flex gap-2">
@@ -265,11 +289,17 @@ export default function MembersPage() {
                     </div>
                   )}
                 </div>
+                {!user && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-800">
+                    <Lock size={18} />
+                    <p className="text-xs font-bold">비회원인 경우 개인정보 보호를 위해 일부 정보가 마스킹 처리됩니다.</p>
+                  </div>
+                )}
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-2xl space-y-3">
-                    <div className="flex items-start gap-3"><Phone size={18} className="text-[#2d5a27] shrink-0" /><div><p className="text-xs font-bold text-slate-400">연락처</p><p className="text-slate-700 font-medium">{selectedMember.phone || '-'}</p></div></div>
-                    <div className="flex items-start gap-3"><Mail size={18} className="text-[#2d5a27] shrink-0" /><div><p className="text-xs font-bold text-slate-400">이메일</p><p className="text-slate-700 font-medium">{selectedMember.email || '-'}</p></div></div>
-                    <div className="flex items-start gap-3"><MapPin size={18} className="text-[#2d5a27] shrink-0" /><div><p className="text-xs font-bold text-slate-400">거주지 주소</p><p className="text-slate-700 font-medium">{selectedMember.address || '-'}</p></div></div>
+                    <div className="flex items-start gap-3"><Phone size={18} className="text-[#2d5a27] shrink-0" /><div><p className="text-xs font-bold text-slate-400">연락처</p><p className="text-slate-700 font-medium">{maskInfo(selectedMember.phone, 'phone')}</p></div></div>
+                    <div className="flex items-start gap-3"><Mail size={18} className="text-[#2d5a27] shrink-0" /><div><p className="text-xs font-bold text-slate-400">이메일</p><p className="text-slate-700 font-medium">{maskInfo(selectedMember.email, 'email')}</p></div></div>
+                    <div className="flex items-start gap-3"><MapPin size={18} className="text-[#2d5a27] shrink-0" /><div><p className="text-xs font-bold text-slate-400">거주지 주소</p><p className="text-slate-700 font-medium">{maskInfo(selectedMember.address, 'address')}</p></div></div>
                   </div>
                   {selectedMember.researchFields ? (
                     <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">

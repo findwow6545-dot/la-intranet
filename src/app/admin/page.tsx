@@ -8,7 +8,7 @@ import { db } from '@/lib/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Shield, Users, Settings, Search, UserPlus, Trash2,
-  CheckCircle2, Loader2, X
+  CheckCircle2, Loader2, X, Star
 } from 'lucide-react';
 
 interface Member {
@@ -71,14 +71,14 @@ export default function AdminPage() {
     }
   }, [isAdmin]);
 
-  const toggleAdminRole = async (member: Member) => {
+  const changeRole = async (member: Member, newRole: string) => {
     if (member.email === user?.email) {
       alert("자신의 권한은 변경할 수 없습니다.");
       return;
     }
 
-    const newRole = member.role === 'admin' ? 'member' : 'admin';
-    const confirmMessage = `${member.name} 사용자를 ${newRole === 'admin' ? '관리자' : '일반 멤버'}로 변경하시겠습니까?`;
+    const roleName = newRole === 'admin' ? '관리자' : newRole === 'manager' ? '연구실장' : '일반 멤버';
+    const confirmMessage = `${member.name} 사용자를 ${roleName}(으)로 변경하시겠습니까?`;
     
     if (!confirm(confirmMessage)) return;
 
@@ -86,7 +86,7 @@ export default function AdminPage() {
     try {
       await updateDoc(doc(db, 'members', member.id), { role: newRole });
       setMembers(prev => prev.map(m => m.id === member.id ? { ...m, role: newRole } : m));
-      showToast(`${member.name}님이 ${newRole === 'admin' ? '관리자' : '일반 멤버'}로 변경되었습니다.`);
+      showToast(`${member.name}님이 ${roleName}(으)로 변경되었습니다.`);
     } catch (error) {
       console.error("Error updating role:", error);
       showToast("권한 변경 중 오류가 발생했습니다.", 'error');
@@ -265,10 +265,10 @@ export default function AdminPage() {
               <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center">
                 <Shield size={20} />
               </div>
-              <span className="text-xs font-bold text-slate-400">Admins</span>
+              <span className="text-xs font-bold text-slate-400">Admins & Managers</span>
             </div>
-            <p className="text-3xl font-black text-slate-900">{members.filter(m => m.role === 'admin').length}</p>
-            <p className="text-sm text-slate-500 mt-1">관리자 계정</p>
+            <p className="text-3xl font-black text-slate-900">{members.filter(m => m.role === 'admin' || m.role === 'manager').length}</p>
+            <p className="text-sm text-slate-500 mt-1">관리 권한 계정</p>
           </div>
         </div>
 
@@ -296,7 +296,7 @@ export default function AdminPage() {
                     <th className="px-6 py-4">이름 / 기수</th>
                     <th className="px-6 py-4">이메일</th>
                     <th className="px-6 py-4">역할</th>
-                    <th className="px-6 py-4 text-right">관리</th>
+                    <th className="px-6 py-4 text-right">권한 관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -314,6 +314,10 @@ export default function AdminPage() {
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-full border border-purple-100">
                             <Shield size={10} /> ADMIN
                           </span>
+                        ) : member.role === 'manager' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-full border border-emerald-100">
+                            <Star size={10} /> 연구실장
+                          </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-600 text-[10px] font-bold rounded-full border border-slate-100">
                             MEMBER
@@ -321,19 +325,18 @@ export default function AdminPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button 
-                            onClick={() => toggleAdminRole(member)}
-                            disabled={updatingId === member.id}
-                            className="p-2 text-slate-400 hover:text-[#2d5a27] hover:bg-emerald-50 rounded-lg transition-all disabled:opacity-50"
-                            title="권한 변경"
+                        <div className="flex items-center justify-end gap-2">
+                          <select 
+                            value={member.role || 'member'} 
+                            onChange={(e) => changeRole(member, e.target.value)}
+                            disabled={updatingId === member.id || member.email === user?.email}
+                            className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-emerald-500/10 disabled:opacity-50"
                           >
-                            {updatingId === member.id ? (
-                              <Loader2 size={18} className="animate-spin" />
-                            ) : (
-                              <Settings size={18} />
-                            )}
-                          </button>
+                            <option value="member">일반 멤버</option>
+                            <option value="manager">연구실장</option>
+                            <option value="admin">최고 관리자</option>
+                          </select>
+                          
                           {member.email !== user?.email && (
                             <button 
                               onClick={() => handleDeleteMember(member)}

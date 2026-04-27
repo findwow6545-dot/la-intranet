@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
-import { ClipboardList, BookOpen, Calendar, ArrowRight, Sparkles, MessageSquare, Send, User, Maximize2, X } from 'lucide-react';
+import { GraduationCap, BookOpen, Calendar, ArrowRight, Sparkles, MessageSquare, Send, User, Maximize2, X } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
@@ -49,7 +49,7 @@ export default function Home() {
 
   const menuItems = [
     { 
-      title: "공지 및 게시판", desc: "연구실 주요 공지와 정보 공유", icon: ClipboardList, href: "/board", color: "bg-blue-600", shadow: "shadow-blue-900/10"
+      title: "스터디 게시판", desc: "연구실 학습 자료 및 정보 공유", icon: GraduationCap, href: "/study", color: "bg-blue-600", shadow: "shadow-blue-900/10"
     },
     { 
       title: "데이터 라이브러리", desc: "연구 논문 및 프로젝트 데이터셋 보관", icon: BookOpen, href: "/library", color: "bg-amber-600", shadow: "shadow-amber-900/10"

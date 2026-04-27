@@ -9,6 +9,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  isManager: boolean;
   userRole: string | null;
   userName: string | null;
   logout: () => Promise<void>;
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   isAdmin: false,
+  isManager: false,
   userRole: null,
   userName: null,
   logout: async () => {},
@@ -29,6 +31,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isManager, setIsManager] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -44,23 +47,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             const userData = querySnapshot.docs[0].data();
             const role = userData.role || 'member';
             setUserRole(role);
-            setIsAdmin(role === 'admin');
+            
+            const isAdm = role === 'admin';
+            const isMng = role === 'manager';
+            
+            setIsManager(isMng);
+            // 관리자 권한은 어드민이거나 연구실장(manager)인 경우 모두 부여
+            setIsAdmin(isAdm || isMng);
             setUserName(userData.name || null);
           } else {
             setUserRole('member');
             setIsAdmin(false);
+            setIsManager(false);
             setUserName(firebaseUser.email?.split('@')[0] || null);
           }
         } catch (error) {
           console.error("Error fetching user role:", error);
           setUserRole(null);
           setIsAdmin(false);
+          setIsManager(false);
           setUserName(null);
         }
       } else {
         setUser(null);
         setUserRole(null);
         setIsAdmin(false);
+        setIsManager(false);
         setUserName(null);
       }
       setLoading(false);
@@ -74,7 +86,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, userRole, userName, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, isManager, userRole, userName, logout }}>
       {children}
     </AuthContext.Provider>
   );
