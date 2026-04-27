@@ -3,19 +3,25 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Leaf, Menu, X, Users, ClipboardList, BookOpen, Calendar, Home } from 'lucide-react';
-
-const navLinks = [
-  { label: '홈', href: '/', icon: Home },
-  { label: '연구생 명부', href: '/members', icon: Users },
-  { label: '게시판', href: '/board', icon: ClipboardList },
-  { label: '자료실', href: '/library', icon: BookOpen },
-  { label: '일정', href: '/schedule', icon: Calendar },
-];
+import { Leaf, Menu, X, Users, ClipboardList, BookOpen, Calendar, Home, LogIn, LogOut, Shield } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, isAdmin, logout } = useAuth();
+
+  const navLinks = [
+    { label: '홈', href: '/', icon: Home },
+    { label: '연구생 명부', href: '/members', icon: Users },
+    { label: '게시판', href: '/board', icon: ClipboardList },
+    { label: '자료실', href: '/library', icon: BookOpen },
+    { label: '일정', href: '/schedule', icon: Calendar },
+  ];
+
+  if (isAdmin) {
+    navLinks.push({ label: '관리자', href: '/admin', icon: Shield });
+  }
 
   return (
     <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100">
@@ -51,6 +57,26 @@ export default function Navbar() {
                 </Link>
               );
             })}
+            
+            <div className="h-6 w-[1px] bg-slate-200 mx-2" />
+
+            {user ? (
+              <button
+                onClick={() => logout()}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all flex items-center gap-2"
+              >
+                <LogOut size={16} />
+                로그아웃
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-[#2d5a27] hover:bg-emerald-50 transition-all flex items-center gap-2"
+              >
+                <LogIn size={16} />
+                로그인
+              </Link>
+            )}
           </div>
 
           {/* Mobile Toggle */}
@@ -83,6 +109,30 @@ export default function Navbar() {
                 </Link>
               );
             })}
+            
+            <div className="pt-2">
+              {user ? (
+                <button
+                  onClick={() => {
+                    logout();
+                    setMobileOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-xl text-sm font-semibold text-red-600 hover:bg-red-50 transition-all flex items-center gap-3"
+                >
+                  <LogOut size={18} />
+                  로그아웃
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-3 rounded-xl text-sm font-semibold text-[#2d5a27] hover:bg-emerald-50 transition-all flex items-center gap-3"
+                >
+                  <LogIn size={18} />
+                  로그인
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </div>

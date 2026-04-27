@@ -18,6 +18,8 @@ export const metadata: Metadata = {
   description: "Landscape Architecture Expression Lab - 연구실 통합 인트라넷 시스템",
 };
 
+import { AuthProvider } from "@/lib/auth-context";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -26,8 +28,10 @@ export default function RootLayout({
   return (
     <html lang="ko" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased">
-        <Navbar />
-        {children}
+        <AuthProvider>
+          <Navbar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
