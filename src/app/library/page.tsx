@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, FileText, Code, Palette, MoreHorizontal, PlusCircle, ClipboardList, Tag } from 'lucide-react';
+import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, Tag } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/lib/auth-context';
+import { useBoardCategories } from '@/lib/use-board-categories';
+import CategoryManager from '@/components/CategoryManager';
 
 interface LibraryItem {
   id: string;
@@ -20,7 +22,7 @@ interface LibraryItem {
   createdAt: any;
 }
 
-const DEFAULT_CATEGORIES = ['논문', '앱/웹개발', '디자인', '회의록', '기타'];
+const FALLBACK = '기타';
 
 const CATEGORY_STYLES: Record<string, string> = {
   '논문': 'bg-amber-50 text-amber-700 border-amber-200',
@@ -29,7 +31,6 @@ const CATEGORY_STYLES: Record<string, string> = {
   '회의록': 'bg-emerald-50 text-emerald-700 border-emerald-200',
   '기타': 'bg-gray-50 text-gray-700 border-gray-200',
 };
-
 const getCategoryColor = (type: string) => CATEGORY_STYLES[type] || 'bg-slate-50 text-slate-600 border-slate-100';
 
 const extractYoutubeId = (text: string) => {
@@ -61,6 +62,13 @@ const Linkify = ({ text }: { text: string }) => {
 
 export default function LibraryPage() {
   const { user, isAdmin, userName } = useAuth();
+  const { categories: boardCategories, addCategory, deleteCategory, renameCategory } = useBoardCategories({
+    boardName: 'library',
+    postsCollection: 'library',
+    categoryField: 'type',
+    fallbackCategory: FALLBACK,
+  });
+
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -69,12 +77,10 @@ export default function LibraryPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null);
 
-  const emptyForm = { title: '', content: '', uploader: '', type: '논문' };
+  const emptyForm = { title: '', content: '', uploader: '', type: boardCategories[0] || FALLBACK };
   const [formData, setFormData] = useState(emptyForm);
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [isAddingCategory, setIsAddingCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -95,17 +101,10 @@ export default function LibraryPage() {
     return () => unsubscribe();
   }, []);
 
-  // 동적 카테고리 목록
-  const allCategories = useMemo(() => {
-    const customCats = items.map(p => p.type).filter(Boolean) as string[];
-    const unique = new Set([...DEFAULT_CATEGORIES, ...customCats]);
-    return Array.from(unique);
-  }, [items]);
-
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { '전체': items.length };
     items.forEach(item => {
-      const t = item.type || '기타';
+      const t = item.type || FALLBACK;
       counts[t] = (counts[t] || 0) + 1;
     });
     return counts;
@@ -133,9 +132,7 @@ export default function LibraryPage() {
   }, [isFormOpen, isUploading]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files[0]) setFile(e.target.files[0]);
   };
 
   const getAttachmentType = (type: string) => {
@@ -144,25 +141,9 @@ export default function LibraryPage() {
     return 'file';
   };
 
-  const handleAddCategory = () => {
-    const trimmed = newCategoryName.trim();
-    if (!trimmed) return;
-    if (allCategories.includes(trimmed)) {
-      showToast('이미 존재하는 카테고리입니다.', 'error');
-      return;
-    }
-    setFormData({ ...formData, type: trimmed });
-    setNewCategoryName('');
-    setIsAddingCategory(false);
-    showToast(`"${trimmed}" 카테고리가 추가되었습니다!`);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      showToast('로그인이 필요합니다.', 'error');
-      return;
-    }
+    if (!user) { showToast('로그인이 필요합니다.', 'error'); return; }
     setIsUploading(true);
     let attachmentUrl = '';
     let attachmentType = '';
@@ -176,47 +157,29 @@ export default function LibraryPage() {
       }
 
       const savePayload: any = { 
-        title: formData.title,
-        content: formData.content,
+        title: formData.title, content: formData.content,
         uploader: formData.uploader || userName || user.email,
-        uploaderEmail: user.email,
-        type: formData.type,
+        uploaderEmail: user.email, type: formData.type,
       };
-      if (file) {
-        savePayload.attachmentUrl = attachmentUrl;
-        savePayload.attachmentType = attachmentType;
-      }
+      if (file) { savePayload.attachmentUrl = attachmentUrl; savePayload.attachmentType = attachmentType; }
 
       if (editingId) {
         await updateDoc(doc(db, 'library', editingId), savePayload);
         showToast('자료가 성공적으로 수정되었습니다!');
       } else {
-        await addDoc(collection(db, 'library'), { 
-          ...savePayload,
-          createdAt: serverTimestamp() 
-        });
+        await addDoc(collection(db, 'library'), { ...savePayload, createdAt: serverTimestamp() });
         showToast('자료가 성공적으로 등록되었습니다!');
       }
-
-      setIsFormOpen(false);
-      setEditingId(null);
-      setFormData(emptyForm);
-      setFile(null);
-    } catch (err) {
-      console.error(err);
-      showToast('저장 중 오류가 발생했습니다.', 'error');
-    } finally {
-      setIsUploading(false);
-    }
+      setIsFormOpen(false); setEditingId(null); setFormData(emptyForm); setFile(null);
+    } catch (err) { console.error(err); showToast('저장 중 오류가 발생했습니다.', 'error'); }
+    finally { setIsUploading(false); }
   };
 
   const handleEdit = (e: React.MouseEvent, p: LibraryItem) => {
     e.stopPropagation();
     if (!canEditDelete(p)) return;
-    setFormData({ title: p.title, content: p.content || (p as any).description || '', uploader: p.uploader, type: p.type || '논문' });
-    setEditingId(p.id);
-    setFile(null);
-    setIsFormOpen(true);
+    setFormData({ title: p.title, content: p.content || (p as any).description || '', uploader: p.uploader, type: p.type || FALLBACK });
+    setEditingId(p.id); setFile(null); setIsFormOpen(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -250,7 +213,7 @@ export default function LibraryPage() {
         {user && (
           <button onClick={() => {
               setIsFormOpen(!isFormOpen);
-              if (!isFormOpen) { setFormData({ ...emptyForm, uploader: userName || '' }); setEditingId(null); setFile(null); }
+              if (!isFormOpen) { setFormData({ ...emptyForm, uploader: userName || '', type: boardCategories[0] || FALLBACK }); setEditingId(null); setFile(null); }
             }} 
             className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-amber-700 transition flex items-center gap-2" disabled={isUploading}
           >
@@ -259,33 +222,27 @@ export default function LibraryPage() {
         )}
       </div>
 
-      {/* 카테고리 탭 */}
-      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-        <button
-          onClick={() => setSelectedCategory('전체')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
-            ${selectedCategory === '전체' 
-              ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' 
-              : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
-            }`}
-        >
-          <BookOpen size={16} /> 전체
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === '전체' ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts['전체'] || 0}</span>
-        </button>
-        {allCategories.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
+      {/* 카테고리 탭 + 관리 버튼 */}
+      <div className="mb-6 flex items-center gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide flex-1">
+          <button onClick={() => setSelectedCategory('전체')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
-              ${selectedCategory === cat 
-                ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' 
-                : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
-              }`}
+              ${selectedCategory === '전체' ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'}`}
           >
-            <Tag size={14} /> {cat}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts[cat] || 0}</span>
+            <BookOpen size={16} /> 전체
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === '전체' ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts['전체'] || 0}</span>
           </button>
-        ))}
+          {boardCategories.map(cat => (
+            <button key={cat} onClick={() => setSelectedCategory(cat)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
+                ${selectedCategory === cat ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'}`}
+            >
+              <Tag size={14} /> {cat}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts[cat] || 0}</span>
+            </button>
+          ))}
+        </div>
+        <CategoryManager categories={boardCategories} fallbackCategory={FALLBACK} addCategory={addCategory} deleteCategory={deleteCategory} renameCategory={renameCategory} accentColor="amber" />
       </div>
 
       <AnimatePresence>
@@ -296,22 +253,9 @@ export default function LibraryPage() {
               <input required placeholder="자료명" className="input-field focus:border-amber-500 focus:ring-amber-500/10" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} disabled={isUploading}/>
               <div className="flex gap-4">
                 <input required placeholder="등록자 이름" className="input-field flex-1 focus:border-amber-500 focus:ring-amber-500/10" value={formData.uploader} onChange={e => setFormData({...formData, uploader: e.target.value})} disabled={isUploading}/>
-                <div className="flex gap-2 items-center">
-                  {isAddingCategory ? (
-                    <div className="flex gap-2 items-center">
-                      <input placeholder="새 카테고리명" className="input-field w-32 text-sm" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCategory())} autoFocus />
-                      <button type="button" onClick={handleAddCategory} className="text-amber-600 hover:bg-amber-50 p-2 rounded-lg transition"><CheckCircle2 size={18}/></button>
-                      <button type="button" onClick={() => setIsAddingCategory(false)} className="text-slate-400 hover:bg-slate-50 p-2 rounded-lg transition"><X size={18}/></button>
-                    </div>
-                  ) : (
-                    <>
-                      <select className="input-field w-36 focus:border-amber-500 focus:ring-amber-500/10" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isUploading}>
-                        {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <button type="button" onClick={() => setIsAddingCategory(true)} className="text-amber-500 hover:bg-amber-50 p-2 rounded-lg transition shrink-0" title="새 카테고리 추가"><PlusCircle size={20}/></button>
-                    </>
-                  )}
-                </div>
+                <select className="input-field w-36 focus:border-amber-500 focus:ring-amber-500/10" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isUploading}>
+                  {boardCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
               <textarea required placeholder="자료 설명 및 링크를 입력하세요..." className="input-field h-32 resize-none focus:border-amber-500 focus:ring-amber-500/10" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} disabled={isUploading}/>
               
@@ -321,10 +265,7 @@ export default function LibraryPage() {
                   {file ? (
                      <div className="font-bold text-amber-600 flex items-center gap-2"><Paperclip size={18}/> {file.name}</div>
                   ) : (
-                     <>
-                      <FileImage size={24} className="mb-2 text-slate-400" />
-                      <p className="text-sm font-bold">파일 첨부 (논문 PDF, 이미지, 영상)</p>
-                     </>
+                     <><FileImage size={24} className="mb-2 text-slate-400" /><p className="text-sm font-bold">파일 첨부 (논문 PDF, 이미지, 영상)</p></>
                   )}
                 </div>
               </div>
@@ -349,7 +290,6 @@ export default function LibraryPage() {
           const ytId = extractYoutubeId(contentStr) || extractYoutubeId((item as any).link || '');
           const attUrl = item.attachmentUrl || (item as any).link;
           const editable = canEditDelete(item);
-          
           return (
           <div key={item.id} onClick={() => setSelectedItem(item)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-amber-300 hover:shadow-md transition cursor-pointer group flex flex-col">
             {item.attachmentType === 'image' && item.attachmentUrl ? (
@@ -371,9 +311,7 @@ export default function LibraryPage() {
                 </div>
               )}
             </div>
-            
             <div className="text-slate-600 text-sm line-clamp-2 mb-4 flex-1 whitespace-pre-wrap"><Linkify text={contentStr} /></div>
-            
             <div className="flex items-center justify-between text-xs font-medium text-slate-400 border-t border-slate-50 pt-4 mt-auto">
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1.5 bg-slate-100/50 px-2 py-1 rounded-md text-slate-600"><User size={12} /> {item.uploader}</span>
@@ -413,18 +351,12 @@ export default function LibraryPage() {
                   <button onClick={() => setSelectedItem(null)} className="p-2 bg-slate-200/50 text-slate-500 rounded-lg hover:bg-slate-200 transition"><X size={20}/></button>
                 </div>
               </div>
-              
               <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
                 <p className="text-slate-800 text-base leading-relaxed whitespace-pre-wrap mb-8"><Linkify text={selectedItem.content || (selectedItem as any).description || ''} /></p>
-                
                 {(selectedItem.attachmentUrl || (selectedItem as any).link) && (
                   <div className="mt-4 border border-slate-100 rounded-2xl overflow-hidden bg-slate-50 p-2">
-                    {selectedItem.attachmentType === 'image' && (
-                      <img src={selectedItem.attachmentUrl} alt="첨부 이미지" className="w-full h-auto rounded-xl max-h-[500px] object-contain bg-black/5" />
-                    )}
-                    {selectedItem.attachmentType === 'video' && (
-                      <video src={selectedItem.attachmentUrl} controls className="w-full h-auto rounded-xl max-h-[500px] bg-black" />
-                    )}
+                    {selectedItem.attachmentType === 'image' && <img src={selectedItem.attachmentUrl} alt="첨부 이미지" className="w-full h-auto rounded-xl max-h-[500px] object-contain bg-black/5" />}
+                    {selectedItem.attachmentType === 'video' && <video src={selectedItem.attachmentUrl} controls className="w-full h-auto rounded-xl max-h-[500px] bg-black" />}
                     {selectedItem.attachmentType === 'file' && (
                       <a href={selectedItem.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-4 bg-white rounded-xl border border-amber-100 hover:border-amber-300 text-amber-600 font-bold transition">
                         <Paperclip size={24} /> 파일 다운로드 (새 탭에서 열기)

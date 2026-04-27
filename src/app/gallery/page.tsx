@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Image as ImageIcon, Plus, X, CheckCircle2, Trash2, Loader2, ChevronLeft, ChevronRight, Upload, User, Clock, Maximize2, Trees, Camera, Edit2, PlusCircle, Tag, MoreHorizontal } from 'lucide-react';
+import { Image as ImageIcon, Plus, X, CheckCircle2, Trash2, Loader2, ChevronLeft, ChevronRight, Upload, User, Clock, Maximize2, Edit2, Tag } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/lib/auth-context';
+import { useBoardCategories } from '@/lib/use-board-categories';
+import CategoryManager from '@/components/CategoryManager';
 
 interface GalleryItem {
   id: string;
@@ -18,10 +20,17 @@ interface GalleryItem {
   createdAt: any;
 }
 
-const DEFAULT_GALLERY_CATEGORIES = ['조경표현', '일반사진', '기타사진'];
+const FALLBACK = '기타사진';
 
 export default function GalleryPage() {
   const { user, isAdmin, userName } = useAuth();
+  const { categories: boardCategories, addCategory, deleteCategory, renameCategory } = useBoardCategories({
+    boardName: 'gallery',
+    postsCollection: 'gallery',
+    categoryField: 'category',
+    fallbackCategory: FALLBACK,
+  });
+
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -30,12 +39,10 @@ export default function GalleryPage() {
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
   const [formTitle, setFormTitle] = useState('');
-  const [formCategory, setFormCategory] = useState('조경표현');
+  const [formCategory, setFormCategory] = useState(boardCategories[0] || FALLBACK);
   const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [isAddingCategory, setIsAddingCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -56,13 +63,6 @@ export default function GalleryPage() {
     return () => unsubscribe();
   }, []);
 
-  // 동적 카테고리 목록
-  const allCategories = useMemo(() => {
-    const customCats = items.map(p => p.category).filter(Boolean) as string[];
-    const unique = new Set([...DEFAULT_GALLERY_CATEGORIES, ...customCats]);
-    return Array.from(unique);
-  }, [items]);
-
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { '전체': items.length };
     items.forEach(item => {
@@ -73,96 +73,53 @@ export default function GalleryPage() {
   }, [items]);
 
   const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFiles(Array.from(e.target.files));
-    }
-  };
-
-  const handleAddCategory = () => {
-    const trimmed = newCategoryName.trim();
-    if (!trimmed) return;
-    if (allCategories.includes(trimmed)) {
-      showToast('이미 존재하는 카테고리입니다.', 'error');
-      return;
-    }
-    setFormCategory(trimmed);
-    setNewCategoryName('');
-    setIsAddingCategory(false);
-    showToast(`"${trimmed}" 카테고리가 추가되었습니다!`);
+    if (e.target.files) setFiles(Array.from(e.target.files));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      showToast('로그인이 필요합니다.', 'error');
-      return;
-    }
+    if (!user) { showToast('로그인이 필요합니다.', 'error'); return; }
 
-    // 수정 모드일 때
+    // 수정 모드
     if (editingId) {
       setIsUploading(true);
       try {
         const updatePayload: any = { title: formTitle, category: formCategory };
-        
-        // 새 파일이 선택된 경우 이미지도 교체
         if (files.length > 0) {
           const file = files[0];
           const storageRef = ref(storage, `gallery/${Date.now()}_${file.name}`);
           const uploadTask = await uploadBytesResumable(storageRef, file);
           updatePayload.imageUrl = await getDownloadURL(uploadTask.ref);
         }
-
         await updateDoc(doc(db, 'gallery', editingId), updatePayload);
         showToast('사진 정보가 수정되었습니다!');
-        setIsFormOpen(false);
-        setEditingId(null);
-        setFormTitle('');
-        setFiles([]);
-      } catch (err) {
-        console.error(err);
-        showToast('수정 중 오류가 발생했습니다.', 'error');
-      } finally {
-        setIsUploading(false);
-      }
+        setIsFormOpen(false); setEditingId(null); setFormTitle(''); setFiles([]);
+      } catch (err) { console.error(err); showToast('수정 중 오류가 발생했습니다.', 'error'); }
+      finally { setIsUploading(false); }
       return;
     }
 
     // 새 업로드
-    if (files.length === 0) {
-      showToast('이미지를 선택해주세요.', 'error');
-      return;
-    }
-    setIsUploading(true);
-    setUploadProgress(0);
-
+    if (files.length === 0) { showToast('이미지를 선택해주세요.', 'error'); return; }
+    setIsUploading(true); setUploadProgress(0);
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const storageRef = ref(storage, `gallery/${Date.now()}_${file.name}`);
         const uploadTask = await uploadBytesResumable(storageRef, file);
         const imageUrl = await getDownloadURL(uploadTask.ref);
-
         await addDoc(collection(db, 'gallery'), {
           title: formTitle || file.name.replace(/\.[^/.]+$/, ''),
-          imageUrl,
-          category: formCategory,
-          author: userName || user.email,
-          authorEmail: user.email,
+          imageUrl, category: formCategory,
+          author: userName || user.email, authorEmail: user.email,
           createdAt: serverTimestamp(),
         });
         setUploadProgress(Math.round(((i + 1) / files.length) * 100));
       }
-
       showToast(`${files.length}개의 이미지가 업로드되었습니다!`);
-      setIsFormOpen(false);
-      setFormTitle('');
-      setFiles([]);
-    } catch (err) {
-      console.error(err);
-      showToast('업로드 중 오류가 발생했습니다.', 'error');
-    } finally {
-      setIsUploading(false);
-    }
+      setIsFormOpen(false); setFormTitle(''); setFiles([]);
+    } catch (err) { console.error(err); showToast('업로드 중 오류가 발생했습니다.', 'error'); }
+    finally { setIsUploading(false); }
   };
 
   const handleEdit = (e: React.MouseEvent, item: GalleryItem) => {
@@ -170,10 +127,8 @@ export default function GalleryPage() {
     if (!canEditDelete(item)) return;
     setFormTitle(item.title);
     setFormCategory(item.category || '일반사진');
-    setEditingId(item.id);
-    setFiles([]);
-    setIsFormOpen(true);
-    setLightboxIdx(null);
+    setEditingId(item.id); setFiles([]);
+    setIsFormOpen(true); setLightboxIdx(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -189,7 +144,6 @@ export default function GalleryPage() {
     selectedCategory === '전체' || item.category === selectedCategory
   );
 
-  // Lightbox navigation
   const goNext = useCallback(() => {
     if (lightboxIdx !== null && lightboxIdx < filteredItems.length - 1) setLightboxIdx(lightboxIdx + 1);
   }, [lightboxIdx, filteredItems.length]);
@@ -226,16 +180,8 @@ export default function GalleryPage() {
         </div>
         {user && (
           <button onClick={() => {
-              if (isFormOpen) {
-                setIsFormOpen(false);
-                setEditingId(null);
-              } else {
-                setIsFormOpen(true);
-                setEditingId(null);
-                setFormTitle('');
-                setFormCategory('조경표현');
-                setFiles([]);
-              }
+              if (isFormOpen) { setIsFormOpen(false); setEditingId(null); }
+              else { setIsFormOpen(true); setEditingId(null); setFormTitle(''); setFormCategory(boardCategories[0] || FALLBACK); setFiles([]); }
             }} 
             className="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-teal-700 transition flex items-center gap-2 self-start" disabled={isUploading}
           >
@@ -244,33 +190,27 @@ export default function GalleryPage() {
         )}
       </div>
 
-      {/* 카테고리 탭 */}
-      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-        <button
-          onClick={() => setSelectedCategory('전체')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
-            ${selectedCategory === '전체' 
-              ? 'bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/20' 
-              : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300 hover:text-teal-600'
-            }`}
-        >
-          <ImageIcon size={16} /> 전체
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === '전체' ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts['전체'] || 0}</span>
-        </button>
-        {allCategories.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
+      {/* 카테고리 탭 + 관리 버튼 */}
+      <div className="mb-6 flex items-center gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide flex-1">
+          <button onClick={() => setSelectedCategory('전체')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
-              ${selectedCategory === cat 
-                ? 'bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/20' 
-                : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300 hover:text-teal-600'
-              }`}
+              ${selectedCategory === '전체' ? 'bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/20' : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300 hover:text-teal-600'}`}
           >
-            <Tag size={14} /> {cat}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts[cat] || 0}</span>
+            <ImageIcon size={16} /> 전체
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === '전체' ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts['전체'] || 0}</span>
           </button>
-        ))}
+          {boardCategories.map(cat => (
+            <button key={cat} onClick={() => setSelectedCategory(cat)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
+                ${selectedCategory === cat ? 'bg-teal-600 text-white border-teal-600 shadow-lg shadow-teal-600/20' : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300 hover:text-teal-600'}`}
+            >
+              <Tag size={14} /> {cat}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts[cat] || 0}</span>
+            </button>
+          ))}
+        </div>
+        <CategoryManager categories={boardCategories} fallbackCategory={FALLBACK} addCategory={addCategory} deleteCategory={deleteCategory} renameCategory={renameCategory} accentColor="teal" />
       </div>
 
       {/* 업로드/수정 폼 */}
@@ -280,22 +220,9 @@ export default function GalleryPage() {
             <h2 className="text-lg font-bold mb-4 text-teal-900">{editingId ? '사진 정보 수정' : '사진 업로드'}</h2>
             <div className="space-y-4">
               <input placeholder="제목" className="input-field focus:border-teal-500" value={formTitle} onChange={e => setFormTitle(e.target.value)} disabled={isUploading}/>
-              <div className="flex gap-2 items-center">
-                {isAddingCategory ? (
-                  <div className="flex gap-2 items-center">
-                    <input placeholder="새 카테고리명" className="input-field w-40 text-sm" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCategory())} autoFocus />
-                    <button type="button" onClick={handleAddCategory} className="text-teal-600 hover:bg-teal-50 p-2 rounded-lg transition"><CheckCircle2 size={18}/></button>
-                    <button type="button" onClick={() => setIsAddingCategory(false)} className="text-slate-400 hover:bg-slate-50 p-2 rounded-lg transition"><X size={18}/></button>
-                  </div>
-                ) : (
-                  <>
-                    <select className="input-field w-48 focus:border-teal-500" value={formCategory} onChange={e => setFormCategory(e.target.value)} disabled={isUploading}>
-                      {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button type="button" onClick={() => setIsAddingCategory(true)} className="text-teal-500 hover:bg-teal-50 p-2 rounded-lg transition shrink-0" title="새 카테고리 추가"><PlusCircle size={20}/></button>
-                  </>
-                )}
-              </div>
+              <select className="input-field w-48 focus:border-teal-500" value={formCategory} onChange={e => setFormCategory(e.target.value)} disabled={isUploading}>
+                {boardCategories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
               
               <div className="border-2 border-dashed border-teal-200 p-6 rounded-xl relative hover:bg-teal-50/50 transition">
                 <input type="file" accept="image/*" multiple={!editingId} onChange={handleFilesChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={isUploading}/>
@@ -303,10 +230,7 @@ export default function GalleryPage() {
                   {files.length > 0 ? (
                      <div className="font-bold text-teal-600 flex items-center gap-2"><Upload size={18}/> {files.length}개 이미지 선택됨</div>
                   ) : (
-                     <>
-                      <Upload size={32} className="mb-2 text-teal-400" />
-                      <p className="text-sm font-bold">{editingId ? '새 이미지로 교체 (선택사항)' : '이미지를 선택하세요 (여러 장 가능)'}</p>
-                     </>
+                     <><Upload size={32} className="mb-2 text-teal-400" /><p className="text-sm font-bold">{editingId ? '새 이미지로 교체 (선택사항)' : '이미지를 선택하세요 (여러 장 가능)'}</p></>
                   )}
                 </div>
               </div>
@@ -335,12 +259,7 @@ export default function GalleryPage() {
             className="break-inside-avoid group relative rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-lg hover:border-teal-200 transition-all cursor-pointer bg-white"
             onClick={() => setLightboxIdx(idx)}
           >
-            <img 
-              src={item.imageUrl} 
-              alt={item.title} 
-              className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" 
-              loading="lazy"
-            />
+            <img src={item.imageUrl} alt={item.title} className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
               <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
                 <p className="font-bold text-sm truncate">{item.title}</p>
@@ -365,9 +284,7 @@ export default function GalleryPage() {
 
       {filteredItems.length === 0 && (
         <div className="text-center py-20">
-          <div className="w-20 h-20 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4">
-            <ImageIcon size={40} />
-          </div>
+          <div className="w-20 h-20 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4"><ImageIcon size={40} /></div>
           <p className="text-slate-500 font-medium">아직 등록된 사진이 없습니다.</p>
         </div>
       )}
@@ -375,47 +292,22 @@ export default function GalleryPage() {
       {/* Lightbox */}
       <AnimatePresence>
         {lightboxIdx !== null && filteredItems[lightboxIdx] && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }} 
-            className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex items-center justify-center" 
-            onClick={() => setLightboxIdx(null)}
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex items-center justify-center" onClick={() => setLightboxIdx(null)}>
             <button onClick={() => setLightboxIdx(null)} className="absolute top-6 right-6 text-white/60 hover:text-white transition z-10"><X size={32}/></button>
-            
-            {/* Lightbox 수정/삭제 버튼 */}
             {canEditDelete(filteredItems[lightboxIdx]) && (
               <div className="absolute top-6 left-6 flex gap-2 z-10">
                 <button onClick={(e) => handleEdit(e, filteredItems[lightboxIdx])} className="flex items-center gap-1.5 px-3 py-2 bg-white/10 backdrop-blur-sm rounded-xl text-white/80 hover:bg-white/20 hover:text-white transition text-sm font-bold"><Edit2 size={14}/> 수정</button>
                 <button onClick={(e) => handleDelete(e, filteredItems[lightboxIdx].id)} className="flex items-center gap-1.5 px-3 py-2 bg-red-500/30 backdrop-blur-sm rounded-xl text-white/80 hover:bg-red-500/50 hover:text-white transition text-sm font-bold"><Trash2 size={14}/> 삭제</button>
               </div>
             )}
-
             {lightboxIdx > 0 && (
-              <button onClick={(e) => { e.stopPropagation(); goPrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition bg-white/10 backdrop-blur-sm rounded-full p-3 z-10">
-                <ChevronLeft size={28}/>
-              </button>
+              <button onClick={(e) => { e.stopPropagation(); goPrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition bg-white/10 backdrop-blur-sm rounded-full p-3 z-10"><ChevronLeft size={28}/></button>
             )}
             {lightboxIdx < filteredItems.length - 1 && (
-              <button onClick={(e) => { e.stopPropagation(); goNext(); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition bg-white/10 backdrop-blur-sm rounded-full p-3 z-10">
-                <ChevronRight size={28}/>
-              </button>
+              <button onClick={(e) => { e.stopPropagation(); goNext(); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white transition bg-white/10 backdrop-blur-sm rounded-full p-3 z-10"><ChevronRight size={28}/></button>
             )}
-
-            <motion.div 
-              key={lightboxIdx}
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="max-w-5xl max-h-[85vh] w-full px-4 flex flex-col items-center" 
-              onClick={e => e.stopPropagation()}
-            >
-              <img 
-                src={filteredItems[lightboxIdx].imageUrl} 
-                alt={filteredItems[lightboxIdx].title} 
-                className="max-w-full max-h-[75vh] object-contain rounded-xl shadow-2xl"
-              />
+            <motion.div key={lightboxIdx} initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="max-w-5xl max-h-[85vh] w-full px-4 flex flex-col items-center" onClick={e => e.stopPropagation()}>
+              <img src={filteredItems[lightboxIdx].imageUrl} alt={filteredItems[lightboxIdx].title} className="max-w-full max-h-[75vh] object-contain rounded-xl shadow-2xl" />
               <div className="mt-4 text-center text-white">
                 <p className="text-lg font-bold">{filteredItems[lightboxIdx].title}</p>
                 <div className="flex items-center justify-center gap-3 mt-1 text-white/60 text-sm">
