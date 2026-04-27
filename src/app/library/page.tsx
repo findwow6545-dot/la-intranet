@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, FileText, Code, Palette, MoreHorizontal } from 'lucide-react';
+import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, FileText, Code, Palette, MoreHorizontal, PlusCircle, ClipboardList, Tag } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -20,18 +20,17 @@ interface LibraryItem {
   createdAt: any;
 }
 
-const CATEGORIES = [
-  { key: '전체', label: '전체', icon: BookOpen, color: 'bg-slate-100 text-slate-700 border-slate-200' },
-  { key: '논문', label: '논문', icon: FileText, color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { key: '앱/웹개발', label: '앱/웹개발', icon: Code, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  { key: '디자인', label: '디자인', icon: Palette, color: 'bg-pink-50 text-pink-700 border-pink-200' },
-  { key: '기타', label: '기타', icon: MoreHorizontal, color: 'bg-gray-50 text-gray-700 border-gray-200' },
-];
+const DEFAULT_CATEGORIES = ['논문', '앱/웹개발', '디자인', '회의록', '기타'];
 
-const getCategoryColor = (type: string) => {
-  const cat = CATEGORIES.find(c => c.key === type);
-  return cat ? cat.color : 'bg-slate-50 text-slate-600 border-slate-100';
+const CATEGORY_STYLES: Record<string, string> = {
+  '논문': 'bg-amber-50 text-amber-700 border-amber-200',
+  '앱/웹개발': 'bg-blue-50 text-blue-700 border-blue-200',
+  '디자인': 'bg-pink-50 text-pink-700 border-pink-200',
+  '회의록': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  '기타': 'bg-gray-50 text-gray-700 border-gray-200',
 };
+
+const getCategoryColor = (type: string) => CATEGORY_STYLES[type] || 'bg-slate-50 text-slate-600 border-slate-100';
 
 const extractYoutubeId = (text: string) => {
   if (!text) return null;
@@ -74,6 +73,8 @@ export default function LibraryPage() {
   const [formData, setFormData] = useState(emptyForm);
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -93,6 +94,22 @@ export default function LibraryPage() {
     });
     return () => unsubscribe();
   }, []);
+
+  // 동적 카테고리 목록
+  const allCategories = useMemo(() => {
+    const customCats = items.map(p => p.type).filter(Boolean) as string[];
+    const unique = new Set([...DEFAULT_CATEGORIES, ...customCats]);
+    return Array.from(unique);
+  }, [items]);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { '전체': items.length };
+    items.forEach(item => {
+      const t = item.type || '기타';
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    return counts;
+  }, [items]);
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -125,6 +142,19 @@ export default function LibraryPage() {
     if (type.startsWith('image/')) return 'image';
     if (type.startsWith('video/')) return 'video';
     return 'file';
+  };
+
+  const handleAddCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (allCategories.includes(trimmed)) {
+      showToast('이미 존재하는 카테고리입니다.', 'error');
+      return;
+    }
+    setFormData({ ...formData, type: trimmed });
+    setNewCategoryName('');
+    setIsAddingCategory(false);
+    showToast(`"${trimmed}" 카테고리가 추가되었습니다!`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -202,13 +232,6 @@ export default function LibraryPage() {
     .filter(p => selectedCategory === '전체' || p.type === selectedCategory)
     .filter(p => p.title.includes(searchTerm) || (p.content || (p as any).description || '').includes(searchTerm));
 
-  // 카테고리별 갯수
-  const categoryCounts: Record<string, number> = { '전체': items.length };
-  items.forEach(item => {
-    const t = item.type || '기타';
-    categoryCounts[t] = (categoryCounts[t] || 0) + 1;
-  });
-
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 relative">
       <AnimatePresence>
@@ -222,7 +245,7 @@ export default function LibraryPage() {
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3"><BookOpen className="text-amber-600 w-8 h-8" /> 자료실</h1>
-          <p className="text-slate-500 mt-1 text-sm">논문, 앱/웹개발, 디자인 등의 자료를 올리고 학습하는 공간입니다.</p>
+          <p className="text-slate-500 mt-1 text-sm">논문, 앱/웹개발, 디자인, 회의록 등의 자료를 올리고 학습하는 공간입니다.</p>
         </div>
         {user && (
           <button onClick={() => {
@@ -238,21 +261,29 @@ export default function LibraryPage() {
 
       {/* 카테고리 탭 */}
       <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-        {CATEGORIES.map(cat => (
+        <button
+          onClick={() => setSelectedCategory('전체')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
+            ${selectedCategory === '전체' 
+              ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' 
+              : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
+            }`}
+        >
+          <BookOpen size={16} /> 전체
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === '전체' ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts['전체'] || 0}</span>
+        </button>
+        {allCategories.map(cat => (
           <button
-            key={cat.key}
-            onClick={() => setSelectedCategory(cat.key)}
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
-              ${selectedCategory === cat.key 
+              ${selectedCategory === cat 
                 ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' 
                 : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
               }`}
           >
-            <cat.icon size={16} />
-            {cat.label}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat.key ? 'bg-white/20' : 'bg-slate-100'}`}>
-              {categoryCounts[cat.key] || 0}
-            </span>
+            <Tag size={14} /> {cat}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts[cat] || 0}</span>
           </button>
         ))}
       </div>
@@ -265,12 +296,22 @@ export default function LibraryPage() {
               <input required placeholder="자료명" className="input-field focus:border-amber-500 focus:ring-amber-500/10" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} disabled={isUploading}/>
               <div className="flex gap-4">
                 <input required placeholder="등록자 이름" className="input-field flex-1 focus:border-amber-500 focus:ring-amber-500/10" value={formData.uploader} onChange={e => setFormData({...formData, uploader: e.target.value})} disabled={isUploading}/>
-                <select className="input-field w-36 focus:border-amber-500 focus:ring-amber-500/10" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isUploading}>
-                  <option value="논문">논문</option>
-                  <option value="앱/웹개발">앱/웹개발</option>
-                  <option value="디자인">디자인</option>
-                  <option value="기타">기타</option>
-                </select>
+                <div className="flex gap-2 items-center">
+                  {isAddingCategory ? (
+                    <div className="flex gap-2 items-center">
+                      <input placeholder="새 카테고리명" className="input-field w-32 text-sm" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCategory())} autoFocus />
+                      <button type="button" onClick={handleAddCategory} className="text-amber-600 hover:bg-amber-50 p-2 rounded-lg transition"><CheckCircle2 size={18}/></button>
+                      <button type="button" onClick={() => setIsAddingCategory(false)} className="text-slate-400 hover:bg-slate-50 p-2 rounded-lg transition"><X size={18}/></button>
+                    </div>
+                  ) : (
+                    <>
+                      <select className="input-field w-36 focus:border-amber-500 focus:ring-amber-500/10" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isUploading}>
+                        {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <button type="button" onClick={() => setIsAddingCategory(true)} className="text-amber-500 hover:bg-amber-50 p-2 rounded-lg transition shrink-0" title="새 카테고리 추가"><PlusCircle size={20}/></button>
+                    </>
+                  )}
+                </div>
               </div>
               <textarea required placeholder="자료 설명 및 링크를 입력하세요..." className="input-field h-32 resize-none focus:border-amber-500 focus:ring-amber-500/10" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} disabled={isUploading}/>
               

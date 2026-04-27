@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { GraduationCap, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play } from 'lucide-react';
+import { GraduationCap, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, Link2, BookOpen, MoreHorizontal, PlusCircle, Tag } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -14,10 +14,21 @@ interface Post {
   content: string;
   author: string;
   authorEmail?: string;
+  category?: string;
   attachmentUrl?: string;
   attachmentType?: 'image' | 'video' | 'file';
   createdAt: any;
 }
+
+const DEFAULT_CATEGORIES = ['학습URL', '논문스터디', '기타스터디'];
+
+const CATEGORY_STYLES: Record<string, string> = {
+  '학습URL': 'bg-blue-50 text-blue-700 border-blue-200',
+  '논문스터디': 'bg-purple-50 text-purple-700 border-purple-200',
+  '기타스터디': 'bg-slate-100 text-slate-600 border-slate-200',
+};
+
+const getCategoryStyle = (cat: string) => CATEGORY_STYLES[cat] || 'bg-slate-50 text-slate-600 border-slate-100';
 
 const extractYoutubeId = (text: string) => {
   if (!text) return null;
@@ -52,20 +63,22 @@ export default function StudyPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('전체');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
 
-  const emptyForm = { title: '', content: '', author: '' };
+  const emptyForm = { title: '', content: '', author: '', category: '학습URL' };
   const [formData, setFormData] = useState(emptyForm);
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // 본인 글인지 체크
   const canEditDelete = (post: Post) => {
     if (!user) return false;
     if (isAdmin) return true;
@@ -79,6 +92,23 @@ export default function StudyPage() {
     });
     return () => unsubscribe();
   }, []);
+
+  // 동적 카테고리 목록 (기본 + 사용자가 추가한 카테고리)
+  const allCategories = useMemo(() => {
+    const customCats = posts.map(p => p.category).filter(Boolean) as string[];
+    const unique = new Set([...DEFAULT_CATEGORIES, ...customCats]);
+    return Array.from(unique);
+  }, [posts]);
+
+  // 카테고리별 갯수
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { '전체': posts.length };
+    posts.forEach(p => {
+      const c = p.category || '기타스터디';
+      counts[c] = (counts[c] || 0) + 1;
+    });
+    return counts;
+  }, [posts]);
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -113,6 +143,19 @@ export default function StudyPage() {
     return 'file';
   };
 
+  const handleAddCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (allCategories.includes(trimmed)) {
+      showToast('이미 존재하는 카테고리입니다.', 'error');
+      return;
+    }
+    setFormData({ ...formData, category: trimmed });
+    setNewCategoryName('');
+    setIsAddingCategory(false);
+    showToast(`"${trimmed}" 카테고리가 추가되었습니다!`);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -136,6 +179,7 @@ export default function StudyPage() {
         content: formData.content,
         author: formData.author || userName || user.email,
         authorEmail: user.email,
+        category: formData.category,
       };
       if (file) {
         savePayload.attachmentUrl = attachmentUrl;
@@ -168,7 +212,7 @@ export default function StudyPage() {
   const handleEdit = (e: React.MouseEvent, p: Post) => {
     e.stopPropagation();
     if (!canEditDelete(p)) return;
-    setFormData({ title: p.title, content: p.content, author: p.author });
+    setFormData({ title: p.title, content: p.content, author: p.author, category: p.category || '기타스터디' });
     setEditingId(p.id);
     setFile(null);
     setIsFormOpen(true);
@@ -183,7 +227,9 @@ export default function StudyPage() {
     showToast('게시글이 삭제되었습니다.');
   };
 
-  const filteredPosts = posts.filter(p => p.title.includes(searchTerm) || p.content.includes(searchTerm));
+  const filteredPosts = posts
+    .filter(p => selectedCategory === '전체' || (p.category || '기타스터디') === selectedCategory)
+    .filter(p => p.title.includes(searchTerm) || p.content.includes(searchTerm));
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 relative">
@@ -212,13 +258,60 @@ export default function StudyPage() {
         )}
       </div>
 
+      {/* 카테고리 탭 */}
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        <button
+          onClick={() => setSelectedCategory('전체')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
+            ${selectedCategory === '전체' 
+              ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20' 
+              : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300 hover:text-blue-600'
+            }`}
+        >
+          <GraduationCap size={16} /> 전체
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === '전체' ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts['전체'] || 0}</span>
+        </button>
+        {allCategories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
+              ${selectedCategory === cat 
+                ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/20' 
+                : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300 hover:text-blue-600'
+              }`}
+          >
+            <Tag size={14} /> {cat}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat ? 'bg-white/20' : 'bg-slate-100'}`}>{categoryCounts[cat] || 0}</span>
+          </button>
+        ))}
+      </div>
+
       <AnimatePresence>
         {isFormOpen && user && (
           <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <h2 className="text-lg font-bold mb-4">{editingId ? '게시글 수정' : '새 게시글 작성'}</h2>
             <div className="space-y-4">
               <input required placeholder="제목" className="input-field" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} disabled={isUploading}/>
-              <input required placeholder="작성자 이름" className="input-field" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} disabled={isUploading}/>
+              <div className="flex gap-4">
+                <input required placeholder="작성자 이름" className="input-field flex-1" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} disabled={isUploading}/>
+                <div className="flex gap-2 items-center">
+                  {isAddingCategory ? (
+                    <div className="flex gap-2 items-center">
+                      <input placeholder="새 카테고리명" className="input-field w-32 text-sm" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCategory())} autoFocus />
+                      <button type="button" onClick={handleAddCategory} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition"><CheckCircle2 size={18}/></button>
+                      <button type="button" onClick={() => setIsAddingCategory(false)} className="text-slate-400 hover:bg-slate-50 p-2 rounded-lg transition"><X size={18}/></button>
+                    </div>
+                  ) : (
+                    <>
+                      <select className="input-field w-36" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} disabled={isUploading}>
+                        {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <button type="button" onClick={() => setIsAddingCategory(true)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition shrink-0" title="새 카테고리 추가"><PlusCircle size={20}/></button>
+                    </>
+                  )}
+                </div>
+              </div>
               <textarea required placeholder="학습 URL이나 내용을 입력하세요..." className="input-field h-32 resize-none" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} disabled={isUploading}/>
               
               <div className="border-2 border-dashed border-slate-200 p-4 rounded-xl relative hover:bg-slate-50 transition">
@@ -253,6 +346,7 @@ export default function StudyPage() {
         {filteredPosts.map(post => {
           const ytId = extractYoutubeId(post.content);
           const editable = canEditDelete(post);
+          const postCat = post.category || '기타스터디';
           return (
           <div key={post.id} onClick={() => setSelectedPost(post)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer group flex flex-col">
             {post.attachmentType === 'image' && post.attachmentUrl ? (
@@ -263,7 +357,10 @@ export default function StudyPage() {
               <div className="w-full h-48 bg-slate-900 mb-4 rounded-xl overflow-hidden relative shrink-0"><video src={post.attachmentUrl} className="w-full h-full object-cover opacity-70" preload="metadata" /><div className="absolute inset-0 flex items-center justify-center"><div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center text-white border border-white/30 shadow-xl"><Video size={24}/></div></div></div>
             ) : null}
             <div className="flex justify-between items-start mb-3">
-              <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition">{post.title}</h3>
+              <div className="flex flex-col gap-1">
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border w-max ${getCategoryStyle(postCat)}`}>{postCat}</span>
+                <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition">{post.title}</h3>
+              </div>
               {editable && (
                 <div className="flex gap-1 shrink-0 ml-2">
                   <button onClick={(e) => handleEdit(e, post)} className="text-slate-300 hover:text-blue-500 transition p-1"><Edit2 size={16} /></button>
@@ -296,7 +393,10 @@ export default function StudyPage() {
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-white max-w-2xl w-full rounded-[2rem] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
               <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-900 mb-2 mr-4">{selectedPost.title}</h2>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${getCategoryStyle(selectedPost.category || '기타스터디')}`}>{selectedPost.category || '기타스터디'}</span>
+                    <h2 className="text-2xl font-black text-slate-900 mr-4">{selectedPost.title}</h2>
+                  </div>
                   <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
                     <span className="flex items-center gap-1"><User size={14} className="text-blue-600"/> {selectedPost.author}</span>
                     <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
