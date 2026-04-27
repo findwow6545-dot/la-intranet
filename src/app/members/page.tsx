@@ -12,6 +12,7 @@ import {
   collection, addDoc, updateDoc, serverTimestamp, query, 
   orderBy, onSnapshot, doc, deleteDoc 
 } from 'firebase/firestore';
+import { useAuth } from '@/lib/auth-context';
 
 interface Member {
   id: string;
@@ -28,6 +29,7 @@ interface Member {
 }
 
 export default function MembersPage() {
+  const { isAdmin } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,6 +61,12 @@ export default function MembersPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!isAdmin) {
+      showToast('권한이 없습니다.', 'error');
+      return;
+    }
+
     const savePayload = {
       ...formData,
       photoUrl: formData.photoUrl || 'https://api.dicebear.com/9.x/initials/svg?seed=' + encodeURIComponent(formData.name)
@@ -85,6 +93,8 @@ export default function MembersPage() {
 
   const handleEdit = (e: React.MouseEvent, m: Member) => {
     e.stopPropagation();
+    if (!isAdmin) return;
+    
     setFormData({
       studentId: m.studentId || '', name: m.name || '', phone: m.phone || '', email: m.email || '', 
       address: m.address || '', batch: m.batch || '', grade: m.grade || '', photoUrl: m.photoUrl || '', researchFields: m.researchFields || ''
@@ -96,14 +106,9 @@ export default function MembersPage() {
 
   const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation();
-    const adminId = window.prompt('관리자 아이디를 입력하세요:');
-    if (adminId !== 'admin') {
-      alert('아이디가 일치하지 않습니다.');
-      return;
-    }
-    const adminPw = window.prompt('관리자 비밀번호를 입력하세요:');
-    if (adminPw !== '1234') {
-      alert('비밀번호가 일치하지 않습니다.');
+    
+    if (!isAdmin) {
+      alert('관리자만 삭제 권한이 있습니다.');
       return;
     }
     
@@ -150,14 +155,17 @@ export default function MembersPage() {
           </h1>
           <p className="text-slate-500 mt-1 text-sm">멤버 상세정보를 보려면 카드를 클릭하세요.</p>
         </div>
-        <button onClick={() => {
-            setIsFormOpen(!isFormOpen);
-            if (!isFormOpen) { setFormData(emptyForm); setEditingId(null); }
-          }} 
-          className="btn-primary flex items-center gap-2"
-        >
-          {isFormOpen ? <X size={18} /> : <UserPlus size={18} />} {isFormOpen ? '닫기' : '신규 멤버 등록'}
-        </button>
+        
+        {isAdmin && (
+          <button onClick={() => {
+              setIsFormOpen(!isFormOpen);
+              if (!isFormOpen) { setFormData(emptyForm); setEditingId(null); }
+            }} 
+            className="btn-primary flex items-center gap-2"
+          >
+            {isFormOpen ? <X size={18} /> : <UserPlus size={18} />} {isFormOpen ? '닫기' : '신규 멤버 등록'}
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-8">
@@ -174,7 +182,7 @@ export default function MembersPage() {
       </div>
 
       <AnimatePresence>
-        {isFormOpen && (
+        {isFormOpen && isAdmin && (
           <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="glass-card mb-8 p-6 sm:p-8 rounded-2xl overflow-hidden">
             <h2 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2">
               <UserPlus size={20} className="text-[#2d5a27]"/> {editingId ? '연구원 정보 수정' : '신규 연구원 등록'}
@@ -214,7 +222,9 @@ export default function MembersPage() {
                      </div>
                    </div>
                    <div className="flex gap-1">
-                     <button onClick={(e) => handleEdit(e, member)} className="text-slate-300 hover:text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit2 size={16} /></button>
+                     {isAdmin && (
+                       <button onClick={(e) => handleEdit(e, member)} className="text-slate-300 hover:text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit2 size={16} /></button>
+                     )}
                    </div>
                  </div>
                  <div className="space-y-1.5 text-sm text-slate-600">
@@ -244,14 +254,16 @@ export default function MembersPage() {
                   </div>
                   <p className="text-slate-500 text-sm font-medium mt-1 flex items-center gap-2"><GraduationCap size={16}/> {selectedMember.grade} ({selectedMember.studentId})</p>
                   
-                  <div className="absolute right-0 top-0 flex gap-2">
-                    <button onClick={(e) => { setSelectedMember(null); handleEdit(e, selectedMember!); }} className="text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 px-4 py-2 rounded-xl transition flex items-center gap-2">
-                      <Edit2 size={16}/> 정보 수정
-                    </button>
-                    <button onClick={(e) => handleDelete(e, selectedMember!.id, selectedMember!.name)} className="text-sm font-bold bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl transition flex items-center gap-2">
-                      <Trash2 size={16}/> 삭제하기
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div className="absolute right-0 top-0 flex gap-2">
+                      <button onClick={(e) => { setSelectedMember(null); handleEdit(e, selectedMember!); }} className="text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 px-4 py-2 rounded-xl transition flex items-center gap-2">
+                        <Edit2 size={16}/> 정보 수정
+                      </button>
+                      <button onClick={(e) => handleDelete(e, selectedMember!.id, selectedMember!.name)} className="text-sm font-bold bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl transition flex items-center gap-2">
+                        <Trash2 size={16}/> 삭제하기
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-2xl space-y-3">
