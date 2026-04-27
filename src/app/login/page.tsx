@@ -93,7 +93,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-[#2d5a27] outline-none transition-all text-slate-900"
-                    placeholder="전화번호 뒷 4자리"
+                    placeholder="전체 전화번호(숫자만)"
                   />
                 </div>
               </div>

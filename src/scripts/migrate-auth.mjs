@@ -33,16 +33,16 @@ async function migrate() {
     const email = fields.email.stringValue;
     const phone = fields.phone.stringValue;
     
-    // 전화번호에서 숫자만 추출 후 마지막 4자리
-    const last4Digits = phone.replace(/[^0-9]/g, '').slice(-4);
+    // 전화번호에서 숫자만 추출
+    const fullPhoneDigits = phone.replace(/[^0-9]/g, '');
     
-    if (!email || !last4Digits) {
-      console.log(`Skipping ${email || 'unknown'} - missing data`);
+    if (!email || fullPhoneDigits.length < 6) {
+      console.log(`Skipping ${email || 'unknown'} - missing or invalid phone data`);
       continue;
     }
 
-    console.log(`Creating account for ${email} with password ${last4Digits}...`);
-    const result = await createAuthUser(email, last4Digits);
+    console.log(`Creating account for ${email} with password (full phone digits)...`);
+    const result = await createAuthUser(email, fullPhoneDigits);
     
     if (result.error) {
       if (result.error.message === 'EMAIL_EXISTS') {
