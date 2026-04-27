@@ -3,19 +3,20 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Leaf, Menu, X, Users, ClipboardList, BookOpen, Calendar, Home, LogIn, LogOut, Shield } from 'lucide-react';
+import { Leaf, Menu, X, Users, BookOpen, Calendar, Home, LogIn, LogOut, Shield, GraduationCap, Image } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, userName, logout } = useAuth();
 
   const navLinks = [
     { label: '홈', href: '/', icon: Home },
     { label: '연구생 명부', href: '/members', icon: Users },
-    { label: '게시판', href: '/board', icon: ClipboardList },
+    { label: '스터디', href: '/study', icon: GraduationCap },
     { label: '자료실', href: '/library', icon: BookOpen },
+    { label: '갤러리', href: '/gallery', icon: Image },
     { label: '일정', href: '/schedule', icon: Calendar },
   ];
 
@@ -61,13 +62,16 @@ export default function Navbar() {
             <div className="h-6 w-[1px] bg-slate-200 mx-2" />
 
             {user ? (
-              <button
-                onClick={() => logout()}
-                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all flex items-center gap-2"
-              >
-                <LogOut size={16} />
-                로그아웃
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 hidden lg:block">{userName || user.email}</span>
+                <button
+                  onClick={() => logout()}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all flex items-center gap-2"
+                >
+                  <LogOut size={16} />
+                  로그아웃
+                </button>
+              </div>
             ) : (
               <Link
                 href="/login"

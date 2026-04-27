@@ -2,21 +2,36 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play } from 'lucide-react';
+import { BookOpen, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play, FileText, Code, Palette, MoreHorizontal } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { useAuth } from '@/lib/auth-context';
 
 interface LibraryItem {
   id: string;
   title: string;
   content: string;
   uploader: string;
+  uploaderEmail?: string;
   type: string;
   attachmentUrl?: string;
   attachmentType?: 'image' | 'video' | 'file';
   createdAt: any;
 }
+
+const CATEGORIES = [
+  { key: '전체', label: '전체', icon: BookOpen, color: 'bg-slate-100 text-slate-700 border-slate-200' },
+  { key: '논문', label: '논문', icon: FileText, color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { key: '앱/웹개발', label: '앱/웹개발', icon: Code, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { key: '디자인', label: '디자인', icon: Palette, color: 'bg-pink-50 text-pink-700 border-pink-200' },
+  { key: '기타', label: '기타', icon: MoreHorizontal, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+];
+
+const getCategoryColor = (type: string) => {
+  const cat = CATEGORIES.find(c => c.key === type);
+  return cat ? cat.color : 'bg-slate-50 text-slate-600 border-slate-100';
+};
 
 const extractYoutubeId = (text: string) => {
   if (!text) return null;
@@ -46,10 +61,12 @@ const Linkify = ({ text }: { text: string }) => {
 };
 
 export default function LibraryPage() {
+  const { user, isAdmin, userName } = useAuth();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('전체');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null);
 
@@ -61,6 +78,12 @@ export default function LibraryPage() {
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const canEditDelete = (item: LibraryItem) => {
+    if (!user) return false;
+    if (isAdmin) return true;
+    return item.uploaderEmail === user.email;
   };
 
   useEffect(() => {
@@ -106,6 +129,10 @@ export default function LibraryPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      showToast('로그인이 필요합니다.', 'error');
+      return;
+    }
     setIsUploading(true);
     let attachmentUrl = '';
     let attachmentType = '';
@@ -118,14 +145,16 @@ export default function LibraryPage() {
         attachmentType = getAttachmentType(file.type);
       }
 
-      const savePayload: any = { ...formData };
+      const savePayload: any = { 
+        title: formData.title,
+        content: formData.content,
+        uploader: formData.uploader || userName || user.email,
+        uploaderEmail: user.email,
+        type: formData.type,
+      };
       if (file) {
         savePayload.attachmentUrl = attachmentUrl;
         savePayload.attachmentType = attachmentType;
-      }
-
-      if (savePayload.description === undefined) {
-         savePayload.description = savePayload.content; 
       }
 
       if (editingId) {
@@ -153,6 +182,7 @@ export default function LibraryPage() {
 
   const handleEdit = (e: React.MouseEvent, p: LibraryItem) => {
     e.stopPropagation();
+    if (!canEditDelete(p)) return;
     setFormData({ title: p.title, content: p.content || (p as any).description || '', uploader: p.uploader, type: p.type || '논문' });
     setEditingId(p.id);
     setFile(null);
@@ -168,7 +198,16 @@ export default function LibraryPage() {
     showToast('자료가 삭제되었습니다.');
   };
 
-  const filteredItems = items.filter(p => p.title.includes(searchTerm) || (p.content || (p as any).description || '').includes(searchTerm));
+  const filteredItems = items
+    .filter(p => selectedCategory === '전체' || p.type === selectedCategory)
+    .filter(p => p.title.includes(searchTerm) || (p.content || (p as any).description || '').includes(searchTerm));
+
+  // 카테고리별 갯수
+  const categoryCounts: Record<string, number> = { '전체': items.length };
+  items.forEach(item => {
+    const t = item.type || '기타';
+    categoryCounts[t] = (categoryCounts[t] || 0) + 1;
+  });
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 relative">
@@ -183,28 +222,54 @@ export default function LibraryPage() {
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3"><BookOpen className="text-amber-600 w-8 h-8" /> 자료실</h1>
-          <p className="text-slate-500 mt-1 text-sm">첨부파일(문서, 이미지, 영상)과 함께 연구 자료를 보관하고 공유합니다.</p>
+          <p className="text-slate-500 mt-1 text-sm">논문, 앱/웹개발, 디자인 등의 자료를 올리고 학습하는 공간입니다.</p>
         </div>
-        <button onClick={() => {
-            setIsFormOpen(!isFormOpen);
-            if (!isFormOpen) { setFormData(emptyForm); setEditingId(null); setFile(null); }
-          }} 
-          className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-amber-700 transition flex items-center gap-2" disabled={isUploading}
-        >
-          {isFormOpen ? <X size={18} /> : <Plus size={18} />} {isFormOpen ? '닫기' : '자료 등록'}
-        </button>
+        {user && (
+          <button onClick={() => {
+              setIsFormOpen(!isFormOpen);
+              if (!isFormOpen) { setFormData({ ...emptyForm, uploader: userName || '' }); setEditingId(null); setFile(null); }
+            }} 
+            className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-amber-700 transition flex items-center gap-2" disabled={isUploading}
+          >
+            {isFormOpen ? <X size={18} /> : <Plus size={18} />} {isFormOpen ? '닫기' : '자료 등록'}
+          </button>
+        )}
+      </div>
+
+      {/* 카테고리 탭 */}
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        {CATEGORIES.map(cat => (
+          <button
+            key={cat.key}
+            onClick={() => setSelectedCategory(cat.key)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border whitespace-nowrap transition-all
+              ${selectedCategory === cat.key 
+                ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20' 
+                : 'bg-white text-slate-500 border-slate-200 hover:border-amber-300 hover:text-amber-600'
+              }`}
+          >
+            <cat.icon size={16} />
+            {cat.label}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCategory === cat.key ? 'bg-white/20' : 'bg-slate-100'}`}>
+              {categoryCounts[cat.key] || 0}
+            </span>
+          </button>
+        ))}
       </div>
 
       <AnimatePresence>
-        {isFormOpen && (
+        {isFormOpen && user && (
           <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <h2 className="text-lg font-bold mb-4 text-amber-900">{editingId ? '자료 수정' : '새 자료 등록'}</h2>
             <div className="space-y-4">
               <input required placeholder="자료명" className="input-field focus:border-amber-500 focus:ring-amber-500/10" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} disabled={isUploading}/>
               <div className="flex gap-4">
                 <input required placeholder="등록자 이름" className="input-field flex-1 focus:border-amber-500 focus:ring-amber-500/10" value={formData.uploader} onChange={e => setFormData({...formData, uploader: e.target.value})} disabled={isUploading}/>
-                <select className="input-field w-32 focus:border-amber-500 focus:ring-amber-500/10" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isUploading}>
-                  <option value="논문">논문</option><option value="데이터셋">데이터셋</option><option value="기타 자료">기타 자료</option>
+                <select className="input-field w-36 focus:border-amber-500 focus:ring-amber-500/10" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isUploading}>
+                  <option value="논문">논문</option>
+                  <option value="앱/웹개발">앱/웹개발</option>
+                  <option value="디자인">디자인</option>
+                  <option value="기타">기타</option>
                 </select>
               </div>
               <textarea required placeholder="자료 설명 및 링크를 입력하세요..." className="input-field h-32 resize-none focus:border-amber-500 focus:ring-amber-500/10" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} disabled={isUploading}/>
@@ -217,8 +282,7 @@ export default function LibraryPage() {
                   ) : (
                      <>
                       <FileImage size={24} className="mb-2 text-slate-400" />
-                      <p className="text-sm font-bold">새 파일 첨부 (수정 시 미선택하면 기존 파일 유지)</p>
-                      <p className="text-xs mt-1">(논문 PDF, 이미지, 영상 가능. 링크만 원할 시 비워두세요.)</p>
+                      <p className="text-sm font-bold">파일 첨부 (논문 PDF, 이미지, 영상)</p>
                      </>
                   )}
                 </div>
@@ -243,6 +307,7 @@ export default function LibraryPage() {
           const contentStr = item.content || (item as any).description || '';
           const ytId = extractYoutubeId(contentStr) || extractYoutubeId((item as any).link || '');
           const attUrl = item.attachmentUrl || (item as any).link;
+          const editable = canEditDelete(item);
           
           return (
           <div key={item.id} onClick={() => setSelectedItem(item)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-amber-300 hover:shadow-md transition cursor-pointer group flex flex-col">
@@ -255,13 +320,15 @@ export default function LibraryPage() {
             ) : null}
             <div className="flex justify-between items-start mb-3">
               <div className="flex flex-col items-start gap-1">
-                 <span className="text-[10px] font-black px-2 py-1 bg-amber-50 text-amber-600 rounded-md">{item.type || '자료'}</span>
+                 <span className={`text-[10px] font-black px-2 py-1 rounded-md border ${getCategoryColor(item.type)}`}>{item.type || '자료'}</span>
                  <h3 className="text-xl font-black text-slate-900 group-hover:text-amber-600 transition">{item.title}</h3>
               </div>
-              <div className="flex gap-1 shrink-0 ml-2">
-                <button onClick={(e) => handleEdit(e, item)} className="text-slate-300 hover:text-amber-500 transition p-1"><Edit2 size={16} /></button>
-                <button onClick={(e) => handleDelete(e, item.id, item.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16} /></button>
-              </div>
+              {editable && (
+                <div className="flex gap-1 shrink-0 ml-2">
+                  <button onClick={(e) => handleEdit(e, item)} className="text-slate-300 hover:text-amber-500 transition p-1"><Edit2 size={16} /></button>
+                  <button onClick={(e) => handleDelete(e, item.id, item.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16} /></button>
+                </div>
+              )}
             </div>
             
             <div className="text-slate-600 text-sm line-clamp-2 mb-4 flex-1 whitespace-pre-wrap"><Linkify text={contentStr} /></div>
@@ -289,7 +356,7 @@ export default function LibraryPage() {
               <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                     <span className="text-xs font-black px-2 py-1 bg-amber-100 text-amber-700 rounded-md">{selectedItem.type || '자료'}</span>
+                     <span className={`text-xs font-black px-2 py-1 rounded-md border ${getCategoryColor(selectedItem.type)}`}>{selectedItem.type || '자료'}</span>
                      <h2 className="text-2xl font-black text-slate-900">{selectedItem.title}</h2>
                   </div>
                   <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
@@ -299,7 +366,9 @@ export default function LibraryPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={(e) => { setSelectedItem(null); handleEdit(e, selectedItem); }} className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 font-bold text-sm flex items-center gap-1 transition"><Edit2 size={16}/> 수정</button>
+                  {canEditDelete(selectedItem) && (
+                    <button onClick={(e) => { setSelectedItem(null); handleEdit(e, selectedItem); }} className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 font-bold text-sm flex items-center gap-1 transition"><Edit2 size={16}/> 수정</button>
+                  )}
                   <button onClick={() => setSelectedItem(null)} className="p-2 bg-slate-200/50 text-slate-500 rounded-lg hover:bg-slate-200 transition"><X size={20}/></button>
                 </div>
               </div>
@@ -317,12 +386,12 @@ export default function LibraryPage() {
                     )}
                     {selectedItem.attachmentType === 'file' && (
                       <a href={selectedItem.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-4 bg-white rounded-xl border border-amber-100 hover:border-amber-300 text-amber-600 font-bold transition">
-                        <Paperclip size={24} /> 직접 업로드된 파일 다운로드 (새 탭에서 열기)
+                        <Paperclip size={24} /> 파일 다운로드 (새 탭에서 열기)
                       </a>
                     )}
                     {(selectedItem as any).link && !selectedItem.attachmentUrl && (
                       <a href={(selectedItem as any).link} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-4 bg-white rounded-xl border border-amber-100 hover:border-amber-300 text-amber-600 font-bold transition">
-                        <BookOpen size={24} /> 외부 링크 자료 열기 (새 탭에서 열기)
+                        <BookOpen size={24} /> 외부 링크 자료 열기
                       </a>
                     )}
                   </div>

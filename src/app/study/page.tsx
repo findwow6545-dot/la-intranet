@@ -2,16 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClipboardList, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play } from 'lucide-react';
+import { GraduationCap, Plus, Search, Trash2, X, CheckCircle2, User, Clock, Paperclip, FileImage, Video, Loader2, Edit2, Play } from 'lucide-react';
 import { db, storage } from '@/lib/firebase';
 import { collection, addDoc, updateDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { useAuth } from '@/lib/auth-context';
 
 interface Post {
   id: string;
   title: string;
   content: string;
   author: string;
+  authorEmail?: string;
   attachmentUrl?: string;
   attachmentType?: 'image' | 'video' | 'file';
   createdAt: any;
@@ -44,7 +46,8 @@ const Linkify = ({ text }: { text: string }) => {
   );
 };
 
-export default function BoardPage() {
+export default function StudyPage() {
+  const { user, isAdmin, userName } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,6 +63,13 @@ export default function BoardPage() {
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // 본인 글인지 체크
+  const canEditDelete = (post: Post) => {
+    if (!user) return false;
+    if (isAdmin) return true;
+    return post.authorEmail === user.email;
   };
 
   useEffect(() => {
@@ -105,6 +115,10 @@ export default function BoardPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      showToast('로그인이 필요합니다.', 'error');
+      return;
+    }
     setIsUploading(true);
     let attachmentUrl = '';
     let attachmentType = '';
@@ -117,7 +131,12 @@ export default function BoardPage() {
         attachmentType = getAttachmentType(file.type);
       }
 
-      const savePayload: any = { ...formData };
+      const savePayload: any = { 
+        title: formData.title,
+        content: formData.content,
+        author: formData.author || userName || user.email,
+        authorEmail: user.email,
+      };
       if (file) {
         savePayload.attachmentUrl = attachmentUrl;
         savePayload.attachmentType = attachmentType;
@@ -148,9 +167,10 @@ export default function BoardPage() {
 
   const handleEdit = (e: React.MouseEvent, p: Post) => {
     e.stopPropagation();
+    if (!canEditDelete(p)) return;
     setFormData({ title: p.title, content: p.content, author: p.author });
     setEditingId(p.id);
-    setFile(null); // 수정 시 기존 파일은 유지되나, UI 표시는 복잡하므로 새로 덮어쓸 파일만 받도록 함
+    setFile(null);
     setIsFormOpen(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -177,27 +197,29 @@ export default function BoardPage() {
 
       <div className="mb-8 flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3"><ClipboardList className="text-blue-600 w-8 h-8" /> 공지 및 게시판</h1>
-          <p className="text-slate-500 mt-1 text-sm">첨부파일(이미지, 영상)과 함께 게시글을 남길 수 있습니다.</p>
+          <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3"><GraduationCap className="text-blue-600 w-8 h-8" /> 스터디</h1>
+          <p className="text-slate-500 mt-1 text-sm">학습용 URL이나 자료를 올리고 함께 학습하는 공간입니다.</p>
         </div>
-        <button onClick={() => {
-            setIsFormOpen(!isFormOpen);
-            if (!isFormOpen) { setFormData(emptyForm); setEditingId(null); setFile(null); }
-          }} 
-          className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center gap-2" disabled={isUploading}
-        >
-          {isFormOpen ? <X size={18} /> : <Plus size={18} />} {isFormOpen ? '닫기' : '글쓰기'}
-        </button>
+        {user && (
+          <button onClick={() => {
+              setIsFormOpen(!isFormOpen);
+              if (!isFormOpen) { setFormData({ ...emptyForm, author: userName || '' }); setEditingId(null); setFile(null); }
+            }} 
+            className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center gap-2" disabled={isUploading}
+          >
+            {isFormOpen ? <X size={18} /> : <Plus size={18} />} {isFormOpen ? '닫기' : '글쓰기'}
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
-        {isFormOpen && (
+        {isFormOpen && user && (
           <motion.form initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} onSubmit={handleSubmit} className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             <h2 className="text-lg font-bold mb-4">{editingId ? '게시글 수정' : '새 게시글 작성'}</h2>
             <div className="space-y-4">
               <input required placeholder="제목" className="input-field" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} disabled={isUploading}/>
               <input required placeholder="작성자 이름" className="input-field" value={formData.author} onChange={e => setFormData({...formData, author: e.target.value})} disabled={isUploading}/>
-              <textarea required placeholder="내용을 입력하세요..." className="input-field h-32 resize-none" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} disabled={isUploading}/>
+              <textarea required placeholder="학습 URL이나 내용을 입력하세요..." className="input-field h-32 resize-none" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} disabled={isUploading}/>
               
               <div className="border-2 border-dashed border-slate-200 p-4 rounded-xl relative hover:bg-slate-50 transition">
                 <input type="file" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" disabled={isUploading}/>
@@ -207,8 +229,7 @@ export default function BoardPage() {
                   ) : (
                      <>
                       <FileImage size={24} className="mb-2 text-slate-400" />
-                      <p className="text-sm font-bold">새 파일 첨부 (수정 시 미선택하면 기존 파일 유지)</p>
-                      <p className="text-xs mt-1">(최대 1개 파일, 파이어베이스 스토리지에 저장)</p>
+                      <p className="text-sm font-bold">파일 첨부 (이미지, 영상, 문서)</p>
                      </>
                   )}
                 </div>
@@ -231,6 +252,7 @@ export default function BoardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {filteredPosts.map(post => {
           const ytId = extractYoutubeId(post.content);
+          const editable = canEditDelete(post);
           return (
           <div key={post.id} onClick={() => setSelectedPost(post)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-blue-300 hover:shadow-md transition cursor-pointer group flex flex-col">
             {post.attachmentType === 'image' && post.attachmentUrl ? (
@@ -242,10 +264,12 @@ export default function BoardPage() {
             ) : null}
             <div className="flex justify-between items-start mb-3">
               <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition">{post.title}</h3>
-              <div className="flex gap-1 shrink-0 ml-2">
-                <button onClick={(e) => handleEdit(e, post)} className="text-slate-300 hover:text-blue-500 transition p-1"><Edit2 size={16} /></button>
-                <button onClick={(e) => handleDelete(e, post.id, post.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16} /></button>
-              </div>
+              {editable && (
+                <div className="flex gap-1 shrink-0 ml-2">
+                  <button onClick={(e) => handleEdit(e, post)} className="text-slate-300 hover:text-blue-500 transition p-1"><Edit2 size={16} /></button>
+                  <button onClick={(e) => handleDelete(e, post.id, post.title)} className="text-slate-300 hover:text-red-500 transition p-1"><Trash2 size={16} /></button>
+                </div>
+              )}
             </div>
             
             <div className="text-slate-600 text-sm line-clamp-2 mb-4 flex-1 whitespace-pre-wrap"><Linkify text={post.content} /></div>
@@ -280,7 +304,9 @@ export default function BoardPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={(e) => { setSelectedPost(null); handleEdit(e, selectedPost!); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm flex items-center gap-1 transition"><Edit2 size={16}/> 수정</button>
+                  {canEditDelete(selectedPost) && (
+                    <button onClick={(e) => { setSelectedPost(null); handleEdit(e, selectedPost!); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm flex items-center gap-1 transition"><Edit2 size={16}/> 수정</button>
+                  )}
                   <button onClick={() => setSelectedPost(null)} className="p-2 bg-slate-200/50 text-slate-500 rounded-lg hover:bg-slate-200 transition"><X size={20}/></button>
                 </div>
               </div>
@@ -298,7 +324,7 @@ export default function BoardPage() {
                     )}
                     {selectedPost.attachmentType === 'file' && (
                       <a href={selectedPost.attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-4 bg-white rounded-xl border border-blue-100 hover:border-blue-300 text-blue-600 font-bold transition">
-                        <Paperclip size={24} /> 일반 파일 다운로드 (새 탭에서 열기)
+                        <Paperclip size={24} /> 파일 다운로드 (새 탭에서 열기)
                       </a>
                     )}
                   </div>
